@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
@@ -17,7 +17,7 @@ using Remotion.Linq;
 
 namespace Marten.Linq
 {
-    public class MartenQueryable<T> : QueryableBase<T>, IMartenQueryable<T>
+    public class MartenQueryable<T>: QueryableBase<T>, IMartenQueryable<T>
     {
         public MartenQueryable(IQueryProvider provider) : base(provider)
         {
@@ -46,7 +46,6 @@ namespace Marten.Linq
         {
             return this.Select(x => x.TransformTo<T, TDoc>(transformName));
         }
-
 
         public IEnumerable<IIncludeJoin> Includes
         {
@@ -88,7 +87,6 @@ namespace Marten.Linq
             return this;
         }
 
-
         public IMartenQueryable<T> Include<TInclude>(Expression<Func<T, object>> idSource, IList<TInclude> list,
             JoinType joinType = JoinType.Inner)
         {
@@ -102,12 +100,15 @@ namespace Marten.Linq
 
             return Include<TInclude>(idSource, x =>
             {
+                if (x == null)
+                    return;
+
                 var id = storage.Identity(x).As<TKey>();
                 if (!dictionary.ContainsKey(id))
                 {
                     dictionary.Add(id, x);
                 }
-            });
+            }, joinType);
         }
 
         public IMartenQueryable<T> Stats(out QueryStatistics stats)
@@ -190,7 +191,6 @@ namespace Marten.Linq
             return new LinqQuery<T>(Store, query, Includes.ToArray(), Statistics);
         }
 
-
         private IQueryHandler toDiagnosticHandler(FetchType fetchType)
         {
             switch (fetchType)
@@ -217,7 +217,6 @@ namespace Marten.Linq
 
             return CommandBuilder.ToCommand(Tenant, handler);
         }
-
 
         private Task<TResult> executeAsync<TResult>(Func<LinqQuery<T>, IQueryHandler<TResult>> source,
             CancellationToken token)

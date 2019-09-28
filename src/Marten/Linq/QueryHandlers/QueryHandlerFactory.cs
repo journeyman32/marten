@@ -1,8 +1,7 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
-using System.Reflection;
 using Baseline;
 using Marten.Linq.Compiled;
 using Marten.Linq.Model;
@@ -10,7 +9,6 @@ using Marten.Linq.QueryHandlers.CompiledInclude;
 using Marten.Schema;
 using Marten.Services.Includes;
 using Marten.Util;
-using Npgsql;
 using Remotion.Linq;
 using Remotion.Linq.Clauses.ResultOperators;
 
@@ -19,8 +17,8 @@ namespace Marten.Linq.QueryHandlers
     public interface IQueryHandlerFactory
     {
         IQueryHandler<T> HandlerForScalarQuery<T>(QueryModel model);
-        IQueryHandler<T> HandlerForScalarQuery<T>(QueryModel model, IIncludeJoin[] toArray, QueryStatistics statistics);
 
+        IQueryHandler<T> HandlerForScalarQuery<T>(QueryModel model, IIncludeJoin[] toArray, QueryStatistics statistics);
 
         IQueryHandler<T> HandlerForSingleQuery<T>(QueryModel model, IIncludeJoin[] joins, bool returnDefaultWhenEmpty);
 
@@ -32,7 +30,7 @@ namespace Marten.Linq.QueryHandlers
         IQueryHandler<TOut> HandlerFor<TDoc, TOut>(ICompiledQuery<TDoc, TOut> query, out QueryStatistics stats);
     }
 
-    public class QueryHandlerFactory : IQueryHandlerFactory
+    public class QueryHandlerFactory: IQueryHandlerFactory
     {
         private readonly DocumentStore _store;
         private readonly ConcurrentCache<Type, CachedQuery> _cache = new ConcurrentCache<Type, CachedQuery>();
@@ -93,7 +91,7 @@ namespace Marten.Linq.QueryHandlers
                 cachedQuery = _cache[queryType];
             }
 
-            return cachedQuery.CreateHandler<TOut>(query, out stats);
+            return cachedQuery.CreateHandler<TOut>(query, _store.Serializer, out stats);
         }
 
         private IQueryHandler<T> listHandlerFor<T>(QueryModel model, IIncludeJoin[] joins, QueryStatistics stats)
@@ -140,7 +138,8 @@ namespace Marten.Linq.QueryHandlers
         {
             var choice = model.FindOperators<ChoiceResultOperatorBase>().FirstOrDefault();
 
-            if (choice == null) return null;
+            if (choice == null)
+                return null;
 
             var query = new LinqQuery<T>(_store, model, joins, stats);
 
@@ -172,11 +171,9 @@ namespace Marten.Linq.QueryHandlers
             {
                 throw new InvalidOperationException(
                     "Marten does not support Last()/LastOrDefault(). Use reverse ordering and First()/FirstOrDefault() instead");
-                
             }
             return null;
         }
-
 
         private CachedQuery buildCachedQuery<TDoc, TOut>(Type queryType, ICompiledQuery<TDoc, TOut> query)
         {

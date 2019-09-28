@@ -1,8 +1,6 @@
 <!--Title:Querying Documents with Linq-->
 <!--Url:linq-->
 
-TODO(Split this topic up, and use ST specs)
-
 Marten uses the [Relinq library](https://github.com/re-motion/Relinq) to support a subset of the normal Linq operators. Linq queries are done with
 Marten using the `IQuerySession.Query<T>()` or `IDocumentSession.Query<T>()` method to return an [IQueryable](https://msdn.microsoft.com/en-us/library/system.linq.iqueryable(v=vs.100).aspx) for the document type `T`.
 
@@ -71,7 +69,7 @@ A shorthand for case-insensitive string matching is provided through `EqualsIgno
 
 <[sample:sample-linq-EqualsIgnoreCase]>
 
-This defaults to `String.Equals` with `StringComparison.CurrentCultureIgnoreCase` as comparison type. 
+This defaults to `String.Equals` with `StringComparison.CurrentCultureIgnoreCase` as comparison type.
 
 ## Count()
 
@@ -156,7 +154,7 @@ A few notes on the `SelectMany()` usage and limitations:
 * You can use any other Linq operator that Marten supports *after* the `SelectMany()` in a Linq query, including the `Stats()` and `Include()` operators
 * `Take()` and `Skip()` operators in a Linq query that contains a `SelectMany()` operator will always apply to the child collection database
   rather than the parent document regardless of the order in which the operators appear in the Linq query
-* You cannot use `SelectMany()` with both a `Distinct()` and a `Count()` operator at this point. 
+* You cannot use `SelectMany()` with both a `Distinct()` and a `Count()` operator at this point.
 
 ## Distinct()
 
@@ -187,11 +185,60 @@ a field or property matching one of many supplied values:
 
 <[sample:is_one_of]>
 
+To find one of for an array you can use this strategy:
+
+<[sample:is_one_of_array]>
+
+## IsSupersetOf
+
+<[sample:is_superset_of]>
+
+## IsSubsetOf
+
+<[sample:is_subset_of]>
+
 ## Modulo Queries
 
 Marten v0.8 added the ability to use the modulo operator in Linq queries:
 
 <[sample:querying-with-modulo]>
+
+## AnyTenant
+Query data from all tenants using `AnyTenant` method.
+<[sample:any_tenant]>
+
+## TenantIsOneOf
+Use `TenantIsOneOf` to query on a selected list of tenants.
+<[sample:tenant_is_one_of]>
+
+## Text Search
+
+Postgres contains built in [Text Search functions](https://www.postgresql.org/docs/10/textsearch-controls.html). They enable the possibility to do more sophisticated searching through text fields. Marten gives possibility to define <[linkto:documentation/documents/configuration/full_text;title=Full Text Indexes]> and perform queries on them.
+Currently three types of full Text Search functions are supported:
+
+* regular Search (to_tsquery)
+
+<[sample:search_in_query_sample]>
+
+* plain text Search (plainto_tsquery)
+
+<[sample:plain_search_in_query_sample]>
+
+* phrase Search (phraseto_tsquery)
+
+<[sample:phrase_search_in_query_sample]>
+
+* web-style Search (websearch_to_tsquery, [supported from Postgres 11+](https://www.postgresql.org/docs/11/textsearch-controls.html))
+
+<[sample:web_search_in_query_sample]>
+
+All types of Text Searches can be combined with other Linq queries
+
+<[sample:text_search_combined_with_other_query_sample]>
+
+They allow also to specify language (regConfig) of the text search query (by default `english` is being used)
+
+<[sample:text_search_with_non_default_regConfig_sample]>
 
 
 ## Supported Types

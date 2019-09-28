@@ -15,7 +15,7 @@ using Remotion.Linq.Parsing.Structure;
 
 namespace Marten
 {
-    public class DocumentSession : QuerySession, IDocumentSession
+    public class DocumentSession: QuerySession, IDocumentSession
     {
         private readonly IManagedConnection _connection;
         private readonly UnitOfWork _unitOfWork;
@@ -54,7 +54,8 @@ namespace Marten
         {
             assertNotDisposed();
 
-            if (entity == null) throw new ArgumentNullException(nameof(entity));
+            if (entity == null)
+                throw new ArgumentNullException(nameof(entity));
 
             var storage = Tenant.StorageFor(typeof(T));
             var deletion = storage.DeletionForEntity(entity);
@@ -111,7 +112,8 @@ namespace Marten
         {
             assertNotDisposed();
 
-            if (entities == null) throw new ArgumentNullException(nameof(entities));
+            if (entities == null)
+                throw new ArgumentNullException(nameof(entities));
 
             if (typeof(T).IsGenericEnumerable())
             {
@@ -129,7 +131,8 @@ namespace Marten
 
                 foreach (var entity in entities)
                 {
-                    if (_unitOfWork.Contains<T>(entity)) continue;
+                    if (_unitOfWork.Contains<T>(entity))
+                        continue;
 
                     var assigned = false;
                     var id = idAssignment.Assign(Tenant, entity, out assigned);
@@ -151,7 +154,8 @@ namespace Marten
         {
             assertNotDisposed();
 
-            if (entities == null) throw new ArgumentNullException(nameof(entities));
+            if (entities == null)
+                throw new ArgumentNullException(nameof(entities));
 
             if (typeof(T).IsGenericEnumerable())
             {
@@ -160,7 +164,7 @@ namespace Marten
 
             if (typeof(T) == typeof(object))
             {
-                throw new ArgumentOutOfRangeException("T","'object' is not supported here");
+                throw new ArgumentOutOfRangeException("T", "'object' is not supported here");
             }
             else
             {
@@ -169,7 +173,8 @@ namespace Marten
 
                 foreach (var entity in entities)
                 {
-                    if (_unitOfWork.Contains<T>(entity)) continue;
+                    if (_unitOfWork.Contains<T>(entity))
+                        continue;
 
                     var assigned = false;
                     var id = idAssignment.Assign(Tenant, entity, out assigned);
@@ -184,7 +189,8 @@ namespace Marten
         {
             assertNotDisposed();
 
-            if (entities == null) throw new ArgumentNullException(nameof(entities));
+            if (entities == null)
+                throw new ArgumentNullException(nameof(entities));
 
             if (typeof(T).IsGenericEnumerable())
             {
@@ -202,7 +208,8 @@ namespace Marten
 
                 foreach (var entity in entities)
                 {
-                    if (_unitOfWork.Contains<T>(entity)) continue;
+                    if (_unitOfWork.Contains<T>(entity))
+                        continue;
 
                     var assigned = false;
                     var id = idAssignment.Assign(Tenant, entity, out assigned);
@@ -217,7 +224,8 @@ namespace Marten
         {
             assertNotDisposed();
 
-            if (entities == null) throw new ArgumentNullException(nameof(entities));
+            if (entities == null)
+                throw new ArgumentNullException(nameof(entities));
 
             if (typeof(T).IsGenericEnumerable())
             {
@@ -235,7 +243,8 @@ namespace Marten
 
                 foreach (var entity in entities)
                 {
-                    if (_unitOfWork.Contains<T>(entity)) continue;
+                    if (_unitOfWork.Contains<T>(entity))
+                        continue;
 
                     var assigned = false;
                     var id = idAssignment.Assign(Tenant, entity, out assigned);
@@ -246,7 +255,6 @@ namespace Marten
             }
         }
 
-
         public void Store<T>(T entity, Guid version)
         {
             assertNotDisposed();
@@ -254,7 +262,10 @@ namespace Marten
             var storage = Tenant.StorageFor(typeof(T));
             var id = storage.Identity(entity);
 
-            IdentityMap.Versions.Store<T>(id, version);
+            // This is important for subclassing to use the document type
+            // from the storage rather than the T that might be a
+            // subclass type
+            IdentityMap.Versions.Store(storage.TopLevelBaseType, id, version);
 
             Store(entity);
         }
@@ -287,7 +298,8 @@ namespace Marten
 
         public void SaveChanges()
         {
-            if (!_unitOfWork.HasAnyUpdates()) return;
+            if (!_unitOfWork.HasAnyUpdates())
+                return;
 
             assertNotDisposed();
 
@@ -299,22 +311,22 @@ namespace Marten
             {
                 listener.BeforeSaveChanges(this);
             }
-            
+
             var batch = new UpdateBatch(_store, _connection, IdentityMap.Versions, WriterPool, Tenant, Concurrency);
             var changes = _unitOfWork.ApplyChanges(batch);
             EjectPatchedTypes(changes);
 
             try
             {
-                _connection.Commit();                
+                _connection.Commit();
                 IdentityMap.ClearChanges();
-            }           
+            }
             catch (Exception)
             {
                 // This code has a try/catch in it to stop
                 // any errors from propogating from the rollback
                 _connection.Rollback();
-                
+
                 throw;
             }
 
@@ -328,7 +340,8 @@ namespace Marten
 
         public async Task SaveChangesAsync(CancellationToken token)
         {
-            if (!_unitOfWork.HasAnyUpdates()) return;
+            if (!_unitOfWork.HasAnyUpdates())
+                return;
 
             assertNotDisposed();
 
@@ -348,7 +361,7 @@ namespace Marten
             try
             {
                 await _connection.CommitAsync(token).ConfigureAwait(false);
-                IdentityMap.ClearChanges();                
+                IdentityMap.ClearChanges();
             }
             catch (Exception)
             {
@@ -433,7 +446,7 @@ namespace Marten
             var id = Tenant.StorageFor<T>().Identity(document);
             IdentityMap.Remove<T>(id);
 
-            _unitOfWork.Eject(document);            
+            _unitOfWork.Eject(document);
         }
 
         public void EjectAllOfType(Type type)
@@ -443,19 +456,29 @@ namespace Marten
 
         private void applyProjections()
         {
-            var eventPage = new EventPage(PendingChanges.Streams().ToArray());
-            foreach (var projection in _store.Events.InlineProjections)
+            var streams = PendingChanges.Streams().ToArray();
+
+            if (streams.Length > 0)
             {
-                projection.Apply(this, eventPage);
+                var eventPage = new EventPage(streams);
+                foreach (var projection in _store.Events.InlineProjections)
+                {
+                    projection.Apply(this, eventPage);
+                }
             }
         }
 
         private async Task applyProjectionsAsync(CancellationToken token)
         {
-            var eventPage = new EventPage(PendingChanges.Streams().ToArray());
-            foreach (var projection in _store.Events.InlineProjections)
+            var streams = PendingChanges.Streams().ToArray();
+
+            if (streams.Length > 0)
             {
-                await projection.ApplyAsync(this, eventPage, token).ConfigureAwait(false);
+                var eventPage = new EventPage(streams);
+                foreach (var projection in _store.Events.InlineProjections)
+                {
+                    await projection.ApplyAsync(this, eventPage, token).ConfigureAwait(false);
+                }
             }
         }
 
@@ -464,7 +487,7 @@ namespace Marten
             void Store(IDocumentSession session, IEnumerable<object> objects);
         }
 
-        internal class Handler<T> : IHandler
+        internal class Handler<T>: IHandler
         {
             public void Store(IDocumentSession session, IEnumerable<object> objects)
             {
@@ -472,7 +495,7 @@ namespace Marten
             }
         }
 
-        internal class InsertHandler<T> : IHandler
+        internal class InsertHandler<T>: IHandler
         {
             public void Store(IDocumentSession session, IEnumerable<object> objects)
             {

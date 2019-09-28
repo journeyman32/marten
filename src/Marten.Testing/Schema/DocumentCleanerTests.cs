@@ -1,11 +1,11 @@
-﻿using System;
+using System;
 using System.Linq;
 using Baseline;
-using Marten.Events;
 using Marten.Schema;
 using Marten.Services;
 using Marten.Testing.Documents;
 using Marten.Testing.Events;
+using Marten.Testing.Storage;
 using Shouldly;
 using Xunit;
 using Issue = Marten.Testing.Documents.Issue;
@@ -64,7 +64,6 @@ namespace Marten.Testing.Schema
                 session.Query<Issue>().Count().ShouldBe(0);
                 session.Query<Company>().Count().ShouldBe(0);
             }
-
         }
 
         [Fact]
@@ -124,7 +123,7 @@ namespace Marten.Testing.Schema
             var dbObjects = theStore.Tenancy.Default.DbObjects;
 
             ShouldBeEmpty(dbObjects.DocumentTables());
-            ShouldBeEmpty(dbObjects.Functions().Where(x => x.Name != "mt_immutable_timestamp").ToArray());
+            ShouldBeEmpty(dbObjects.Functions().Where(x => x.Name != "mt_immutable_timestamp" || x.Name != "mt_immutable_timestamptz").ToArray());
         }
 
         [Fact]
@@ -139,7 +138,6 @@ namespace Marten.Testing.Schema
 
             theSession.Events.QueryRawEventDataOnly<QuestStarted>().ShouldBeEmpty();
             theSession.Events.FetchStream(streamId).ShouldBeEmpty();
-
         }
 
         [Fact]
@@ -182,10 +180,7 @@ namespace Marten.Testing.Schema
             theSession.SaveChanges();
             theSession.Dispose();
 
-
-
             theCleaner.DeleteDocumentsExcept(typeof(Target), typeof(User));
-
 
             using (var session = theStore.OpenSession())
             {
@@ -197,6 +192,37 @@ namespace Marten.Testing.Schema
                 session.Query<Issue>().Count().ShouldBe(0);
                 session.Query<Company>().Count().ShouldBe(0);
             }
+        }
+
+        [Fact]
+        public void CanCleanSequences()
+        {
+            StoreOptions(_ =>
+            {
+                _.Storage.Add<SequenceCustomization.SequenceWithStart>();
+            });
+
+            theStore.Schema.ApplyAllConfiguredChangesToDatabase();
+
+            var allSchemas = theStore.Storage.AllSchemaNames();
+
+            int GetSequenceCount(IDocumentStore store)
+            {
+                using (var session = store.QuerySession())
+                {
+                    return session.Query<int>(@"select count(*) from information_schema.sequences s
+where s.sequence_name like ? and s.sequence_schema = any(?);", "mt_%", allSchemas).First();
+                }
+            }
+
+            var sequenceCountBeforeClean = GetSequenceCount(theStore);
+
+            theStore.Advanced.Clean.CompletelyRemoveAll();
+
+            var sequenceCountAfterClean = GetSequenceCount(theStore);
+
+            Assert.True(sequenceCountBeforeClean > 0);
+            Assert.Equal(0, sequenceCountAfterClean);
         }
     }
 }

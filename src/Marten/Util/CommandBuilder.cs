@@ -3,18 +3,41 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Text;
-using Marten.Linq.QueryHandlers;
-using Npgsql;
-using NpgsqlTypes;
 using Baseline;
+using Marten.Linq.QueryHandlers;
 using Marten.Schema.Arguments;
 using Marten.Storage;
+using Npgsql;
+using NpgsqlTypes;
 
 namespace Marten.Util
 {
-    public class CommandBuilder  : IDisposable
+    public class CommandBuilder: IDisposable
     {
         public static readonly string TenantIdArg = ":" + TenantIdArgument.ArgName;
+
+        public static string BuildJsonStringLocator(string column, MemberInfo[] members, Casing casing = Casing.Default)
+        {
+            var locator = new StringBuilder(column);
+            var depth = 1;
+            foreach (var memberInfo in members)
+            {
+                locator.Append(depth == members.Length ? " ->> " : " -> ");
+                locator.Append($"'{memberInfo.Name.FormatCase(casing)}'");
+                depth++;
+            }
+            return locator.ToString();
+        }
+
+        public static string BuildJsonObjectLocator(string column, MemberInfo[] members, Casing casing = Casing.Default)
+        {
+            var locator = new StringBuilder(column);
+            foreach (var memberInfo in members)
+            {
+                locator.Append($" -> '{memberInfo.Name.FormatCase(casing)}'");
+            }
+            return locator.ToString();
+        }
 
         public static NpgsqlCommand BuildCommand(Action<CommandBuilder> configure)
         {
@@ -49,7 +72,8 @@ namespace Marten.Util
 
         public static NpgsqlCommand ToBatchCommand(ITenant tenant, IEnumerable<IQueryHandler> handlers)
         {
-            if (handlers.Count() == 1) return ToCommand(tenant, handlers.Single());
+            if (handlers.Count() == 1)
+                return ToCommand(tenant, handlers.Single());
 
             var wholeStatement = new StringBuilder();
             var command = new NpgsqlCommand();
@@ -78,6 +102,7 @@ namespace Marten.Util
 
         // TEMP -- will shift this to being pooled later
         private readonly StringBuilder _sql = new StringBuilder();
+
         private readonly NpgsqlCommand _command;
 
         public CommandBuilder(NpgsqlCommand command)
@@ -97,28 +122,12 @@ namespace Marten.Util
 
         public void AppendPathToObject(MemberInfo[] members, string column)
         {
-            _sql.Append(column);
-            _sql.Append(" -> ");
-
-            _sql.Append($"{ members.Select(x => $"'{x.Name}'").Join(" -> ")}");
+            _sql.Append(BuildJsonObjectLocator(column, members));
         }
 
         public void AppendPathToValue(MemberInfo[] members, string column)
         {
-            _sql.Append(column);
-            if (members.Length == 1)
-            {
-                _sql.Append($" ->> '{members.Single().Name}'");
-            }
-            else
-            {
-                for (int i = 0; i < members.Length - 1; i++)
-                {
-                    _sql.Append($" -> '{members[i].Name}'");
-                }
-
-                _sql.Append($" ->> '{members.Last().Name}'");
-            }
+            _sql.Append(BuildJsonStringLocator(column, members));
         }
 
         public override string ToString()
@@ -131,13 +140,9 @@ namespace Marten.Util
             _sql.Clear();
         }
 
-        
-
         public void Dispose()
         {
-
         }
-
 
         public void AddParameters(object parameters)
         {

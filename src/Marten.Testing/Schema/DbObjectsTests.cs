@@ -2,6 +2,7 @@
 using Baseline;
 using Marten.Schema;
 using Marten.Testing.Documents;
+using Shouldly;
 using Xunit;
 
 namespace Marten.Testing.Schema
@@ -19,7 +20,6 @@ namespace Marten.Testing.Schema
 
             store1.Tenancy.Default.EnsureStorageExists(typeof(User));
 
-
             var store2 = TestingDocumentStore.For(_ =>
             {
                 _.DatabaseSchemaName = Marten.StoreOptions.DefaultDatabaseSchemaName;
@@ -31,7 +31,7 @@ namespace Marten.Testing.Schema
             var indices = store2.Tenancy.Default.DbObjects.AllIndexes();
 
             indices.Any(x => Equals(x.Table, store1.Storage.MappingFor(typeof(User)).ToQueryableDocument().Table))
-                .ShouldBeTrue();
+                .ShouldBeFalse();
 
             indices.Any(x => Equals(x.Table, store2.Storage.MappingFor(typeof(User)).ToQueryableDocument().Table))
                 .ShouldBeTrue();
@@ -54,6 +54,5 @@ namespace Marten.Testing.Schema
 
             functionBody.Body.ShouldContain("mt_doc_user");
         }
-
     }
 }

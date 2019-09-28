@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using Baseline;
 using Marten.Schema;
 using Marten.Util;
@@ -34,7 +34,6 @@ namespace Marten.Storage
 
                     patch.Rollbacks.Apply(this, drop);
                 });
-
             }
             else if (HasChanged)
             {
@@ -55,9 +54,9 @@ namespace Marten.Storage
                     patch.Rollbacks.Apply(this, drop);
                 });
 
+                patch.Rollbacks.Apply(this, Actual.Body);
             }
         }
-
 
         public override string ToString()
         {

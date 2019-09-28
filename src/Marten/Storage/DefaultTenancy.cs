@@ -13,7 +13,7 @@ using Npgsql;
 
 namespace Marten.Storage
 {
-    public class DefaultTenancy : Tenancy, ITenancy
+    public class DefaultTenancy: Tenancy, ITenancy
     {
         public DefaultTenancy(IConnectionFactory factory, StoreOptions options) : base(options)
         {
@@ -22,7 +22,7 @@ namespace Marten.Storage
             Schema = new TenantSchema(options, Default.As<Tenant>());
         }
 
-        public ITenant this[string tenantId] => new LightweightTenant(tenantId, Default);
+        public ITenant this[string tenantId] => new LightweightTenant(tenantId, Default, Options.RetryPolicy());
 
         public ITenant Default { get; }
 
@@ -36,14 +36,16 @@ namespace Marten.Storage
         public TenancyStyle Style { get; } = TenancyStyle.Conjoined;
     }
 
-    public class LightweightTenant : ITenant
+    public class LightweightTenant: ITenant
     {
         private readonly ITenant _inner;
+        private readonly IRetryPolicy _retryPolicy;
 
-        public LightweightTenant(string tenantId, ITenant inner)
+        public LightweightTenant(string tenantId, ITenant inner, IRetryPolicy retryPolicy)
         {
             _inner = inner;
             TenantId = tenantId;
+            _retryPolicy = retryPolicy;
         }
 
         public IDbObjects DbObjects => _inner.DbObjects;
@@ -66,6 +68,7 @@ namespace Marten.Storage
         }
 
         public ISequences Sequences => _inner.Sequences;
+
         public IDocumentStorage<T> StorageFor<T>()
         {
             return _inner.StorageFor<T>();
@@ -92,7 +95,7 @@ namespace Marten.Storage
         }
 
         public IManagedConnection OpenConnection(CommandRunnerMode mode = CommandRunnerMode.AutoCommit,
-            IsolationLevel isolationLevel = IsolationLevel.ReadCommitted, int timeout = 30)
+            IsolationLevel isolationLevel = IsolationLevel.ReadCommitted, int? timeout = null)
         {
             return _inner.OpenConnection(mode, isolationLevel, timeout);
         }
@@ -104,7 +107,8 @@ namespace Marten.Storage
 
         public DocumentMetadata MetadataFor<T>(T entity)
         {
-            if (entity == null) throw new ArgumentNullException(nameof(entity));
+            if (entity == null)
+                throw new ArgumentNullException(nameof(entity));
 
             var handler = new EntityMetadataQueryHandler(entity, StorageFor(typeof(T)),
                 MappingFor(typeof(T)).As<DocumentMapping>());
@@ -117,7 +121,8 @@ namespace Marten.Storage
 
         public async Task<DocumentMetadata> MetadataForAsync<T>(T entity, CancellationToken token = new CancellationToken())
         {
-            if (entity == null) throw new ArgumentNullException(nameof(entity));
+            if (entity == null)
+                throw new ArgumentNullException(nameof(entity));
 
             var handler = new EntityMetadataQueryHandler(entity, StorageFor(typeof(T)),
                 MappingFor(typeof(T)).As<DocumentMapping>());

@@ -1,11 +1,12 @@
 using System;
 using System.Linq;
 using Marten.Services;
+using Shouldly;
 using Xunit;
 
 namespace Marten.Testing.Events
 {
-    public class marking_stream_as_isnew_on_capture : DocumentSessionFixture<NulloIdentityMap>
+    public class marking_stream_as_isnew_on_capture: DocumentSessionFixture<NulloIdentityMap>
     {
         [Fact]
         public void isnew_on_start_stream()
@@ -28,7 +29,6 @@ namespace Marten.Testing.Events
 
             theSession.PendingChanges.Streams().Single().IsNew.ShouldBeTrue();
         }
-
 
         [Fact]
         public void should_be_existing_stream_on_append_event()

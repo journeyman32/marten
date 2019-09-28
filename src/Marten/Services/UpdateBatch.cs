@@ -1,31 +1,36 @@
-﻿using System;
+using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Baseline;
 using Marten.Schema;
 using Marten.Storage;
 using Npgsql;
 
 namespace Marten.Services
 {
-    public class UpdateBatch : IDisposable
+    public class UpdateBatch: IDisposable
     {
-        private readonly CharArrayTextWriter.IPool _writerPool;
-        private readonly Stack<BatchCommand> _commands = new Stack<BatchCommand>(); 
+        private readonly MemoryPool<char> _writerPool;
+        private readonly List<BatchCommand> _commands = new List<BatchCommand>();
         private readonly ReaderWriterLockSlim _lock = new ReaderWriterLockSlim();
         private readonly List<CharArrayTextWriter> _writers = new List<CharArrayTextWriter>();
         private readonly DocumentStore _store;
         private readonly ITenant _tenant;
+        private BatchCommand _current;
 
-        public UpdateBatch(DocumentStore store, IManagedConnection connection, VersionTracker versions, CharArrayTextWriter.IPool writerPool, ITenant tenant, ConcurrencyChecks concurrency)
+        public UpdateBatch(DocumentStore store, IManagedConnection connection, VersionTracker versions, MemoryPool<char> writerPool, ITenant tenant, ConcurrencyChecks concurrency)
         {
             _store = store;
             _writerPool = writerPool;
             Versions = versions ?? throw new ArgumentNullException(nameof(versions));
 
-            _commands.Push(new BatchCommand(_store.Serializer, tenant));
+            var current = new BatchCommand(_store.Serializer, tenant);
+            _commands.Add(current);
+
+            _current = current;
+
             Connection = connection;
             Concurrency = concurrency;
             TenantId = tenant.TenantId;
@@ -41,7 +46,7 @@ namespace Marten.Services
 
         public CharArrayTextWriter GetWriter()
         {
-            var writer = _writerPool.Lease();
+            var writer = new CharArrayTextWriter(_writerPool);
             _writers.Add(writer);
             return writer;
         }
@@ -51,15 +56,37 @@ namespace Marten.Services
             Connection.Dispose();
         }
 
-        public BatchCommand Current()
+        private bool hasCurrentExceededCommandSizeLimit()
         {
-            return _lock.MaybeWrite(
-                () => _commands.Peek(),
-                () => _commands.Peek().Count >= _store.Options.UpdateBatchSize,
-                () => _commands.Push(new BatchCommand(Serializer, _tenant))
-            );
+            return _current.Count >= _store.Options.UpdateBatchSize;
         }
 
+        public BatchCommand Current()
+        {
+            try
+            {
+                _lock.EnterUpgradeableReadLock();
+                if (hasCurrentExceededCommandSizeLimit())
+                {
+                    _lock.EnterWriteLock();
+                    try
+                    {
+                        _current = new BatchCommand(_store.Serializer, _tenant);
+                        _commands.Add(_current);
+                    }
+                    finally
+                    {
+                        _lock.ExitWriteLock();
+                    }
+                }
+
+                return _current;
+            }
+            finally
+            {
+                _lock.ExitUpgradeableReadLock();
+            }
+        }
 
         public void Add(IStorageOperation operation)
         {
@@ -70,7 +97,8 @@ namespace Marten.Services
 
         public SprocCall Sproc(DbObjectName function, ICallback callback = null, IExceptionTransform exceptionTransform = null)
         {
-            if (function == null) throw new ArgumentNullException(nameof(function));
+            if (function == null)
+                throw new ArgumentNullException(nameof(function));
 
             return Current().Sproc(function, callback, exceptionTransform);
         }
@@ -82,7 +110,7 @@ namespace Marten.Services
             try
             {
                 foreach (var batch in _commands.ToArray())
-                {                    
+                {
                     var cmd = batch.BuildCommand();
                     try
                     {
@@ -114,11 +142,12 @@ namespace Marten.Services
             }
             finally
             {
-                if (_writerPool != null)
+                foreach (var writer in _writers)
                 {
-                    _writerPool?.Release(_writers);
-                    _writers.Clear();
+                    writer.Dispose();
                 }
+
+                _writers.Clear();
             }
         }
 
@@ -148,7 +177,9 @@ namespace Marten.Services
             try
             {
                 var list = new List<Exception>();
-                foreach (var batch in _commands.ToArray())
+
+                var commandsFifo = _commands.ToArray();
+                foreach (var batch in commandsFifo)
                 {
                     var cmd = batch.BuildCommand();
                     await Connection.ExecuteAsync(cmd, async (c, tkn) =>
@@ -169,11 +200,12 @@ namespace Marten.Services
             }
             finally
             {
-                if (_writerPool != null)
+                foreach (var writer in _writers)
                 {
-                    _writerPool?.Release(_writers);
-                    _writers.Clear();
+                    writer.Dispose();
                 }
+
+                _writers.Clear();
             }
         }
 
@@ -193,8 +225,6 @@ namespace Marten.Services
                         {
                             await reader.NextResultAsync(tkn).ConfigureAwait(false);
                         }
-
-
 
                         if (batch.Callbacks[i] != null)
                         {

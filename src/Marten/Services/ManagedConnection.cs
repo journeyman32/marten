@@ -1,64 +1,91 @@
-﻿using System;
+using System;
 using System.Data;
 using System.Threading;
 using System.Threading.Tasks;
 using Baseline;
-using Marten.Services.Events;
+using Marten.Exceptions;
 using Npgsql;
 
 namespace Marten.Services
 {
-    public class ManagedConnection : IManagedConnection
+    public class ManagedConnection: IManagedConnection
     {
         private readonly IConnectionFactory _factory;
         private readonly CommandRunnerMode _mode;
         private readonly IsolationLevel _isolationLevel;
-        private readonly int _commandTimeout;
+        private readonly int? _commandTimeout;
         private TransactionState _connection;
+        private bool _ownsConnection;
+        private IRetryPolicy _retryPolicy;
 
-        public ManagedConnection(IConnectionFactory factory) : this(factory, CommandRunnerMode.AutoCommit)
+        // keeping this for binary compatibility (but not used)
+        [Obsolete("Use the method which includes IRetryPolicy instead")]
+        public ManagedConnection(IConnectionFactory factory) : this(factory, new NulloRetryPolicy())
         {
         }
 
-        public ManagedConnection(SessionOptions options, CommandRunnerMode mode)
+        public ManagedConnection(IConnectionFactory factory, IRetryPolicy retryPolicy) : this(factory, CommandRunnerMode.AutoCommit, retryPolicy)
         {
+        }
+
+        // keeping this for binary compatibility (but not used)
+        [Obsolete("Use the method which includes IRetryPolicy instead")]
+        public ManagedConnection(SessionOptions options, CommandRunnerMode mode) : this(options, mode, new NulloRetryPolicy())
+        {
+        }
+
+        public ManagedConnection(SessionOptions options, CommandRunnerMode mode, IRetryPolicy retryPolicy)
+        {
+            _ownsConnection = options.OwnsConnection;
             _mode = options.OwnsTransactionLifecycle ? mode : CommandRunnerMode.External;
             _isolationLevel = options.IsolationLevel;
-            _commandTimeout = options.Timeout;
 
             var conn = options.Connection ?? options.Transaction?.Connection;
 
-            _connection = new TransactionState(_mode, _isolationLevel, _commandTimeout, conn, options.Transaction);
+            _commandTimeout = options.Timeout ?? conn?.CommandTimeout;
+
+            _connection = new TransactionState(_mode, _isolationLevel, _commandTimeout, conn, options.OwnsConnection, options.Transaction);
+            _retryPolicy = retryPolicy;
         }
 
+        // keeping this for binary compatibility (but not used)
+        [Obsolete("Use the method which includes IRetryPolicy instead")]
+        public ManagedConnection(IConnectionFactory factory, CommandRunnerMode mode,
+            IsolationLevel isolationLevel = IsolationLevel.ReadCommitted, int commandTimeout = 30) : this(factory, mode,
+            new NulloRetryPolicy(), isolationLevel, commandTimeout)
+        {
+        }
 
         // 30 is NpgsqlCommand.DefaultTimeout - ok to burn it to the call site?
-        public ManagedConnection(IConnectionFactory factory, CommandRunnerMode mode,
-            IsolationLevel isolationLevel = IsolationLevel.ReadCommitted, int commandTimeout = 30)
+        public ManagedConnection(IConnectionFactory factory, CommandRunnerMode mode, IRetryPolicy retryPolicy,
+            IsolationLevel isolationLevel = IsolationLevel.ReadCommitted, int? commandTimeout = null)
         {
             _factory = factory;
             _mode = mode;
             _isolationLevel = isolationLevel;
             _commandTimeout = commandTimeout;
+            _ownsConnection = true;
+            _retryPolicy = retryPolicy;
         }
 
         private void buildConnection()
         {
             if (_connection == null)
             {
-                _connection = new TransactionState(_factory, _mode, _isolationLevel, _commandTimeout);
-                _connection.Open();
+                _connection = new TransactionState(_factory, _mode, _isolationLevel, _commandTimeout, _ownsConnection);
+
+                _retryPolicy.Execute(() => _connection.Open());
             }
         }
 
-        private Task buildConnectionAsync(CancellationToken token)
+        private async Task buildConnectionAsync(CancellationToken token)
         {
             if (_connection == null)
             {
-                _connection = new TransactionState(_factory, _mode, _isolationLevel, _commandTimeout);
-                return _connection.OpenAsync(token);
+                _connection = new TransactionState(_factory, _mode, _isolationLevel, _commandTimeout, _ownsConnection);
+
+                await _retryPolicy.ExecuteAsync(async () => await _connection.OpenAsync(token), token);
             }
-            return Task.CompletedTask;
         }
 
         public IMartenSessionLogger Logger { get; set; } = NulloMartenLogger.Flyweight;
@@ -67,11 +94,12 @@ namespace Marten.Services
 
         public void Commit()
         {
-            if (_mode == CommandRunnerMode.External) return;
+            if (_mode == CommandRunnerMode.External)
+                return;
 
             buildConnection();
 
-            _connection.Commit();
+            _retryPolicy.Execute(() => _connection.Commit());
 
             _connection.Dispose();
             _connection = null;
@@ -79,9 +107,11 @@ namespace Marten.Services
 
         public async Task CommitAsync(CancellationToken token)
         {
-            if (_mode == CommandRunnerMode.External) return;
+            if (_mode == CommandRunnerMode.External)
+                return;
 
             await buildConnectionAsync(token).ConfigureAwait(false);
+            await _retryPolicy.ExecuteAsync(async () => await _connection.CommitAsync(token).ConfigureAwait(false), token);
 
             await _connection.CommitAsync(token).ConfigureAwait(false);
 
@@ -91,16 +121,19 @@ namespace Marten.Services
 
         public void Rollback()
         {
-            if (_connection == null) return;
-            if (_mode == CommandRunnerMode.External) return;
+            if (_connection == null)
+                return;
+            if (_mode == CommandRunnerMode.External)
+                return;
 
             try
             {
-                _connection.Rollback();
+                _retryPolicy.Execute(() => _connection.Rollback());
             }
             catch (RollbackException e)
             {
-                if (e.InnerException != null) Logger.LogFailure(new NpgsqlCommand(), e.InnerException);
+                if (e.InnerException != null)
+                    Logger.LogFailure(new NpgsqlCommand(), e.InnerException);
             }
             catch (Exception e)
             {
@@ -115,16 +148,19 @@ namespace Marten.Services
 
         public async Task RollbackAsync(CancellationToken token)
         {
-            if (_connection == null) return;
-            if (_mode == CommandRunnerMode.External) return;
+            if (_connection == null)
+                return;
+            if (_mode == CommandRunnerMode.External)
+                return;
 
             try
             {
-                await _connection.RollbackAsync(token).ConfigureAwait(false);
+                await _retryPolicy.ExecuteAsync(async () => await _connection.RollbackAsync(token).ConfigureAwait(false), token);
             }
             catch (RollbackException e)
             {
-                if (e.InnerException != null) Logger.LogFailure(new NpgsqlCommand(), e.InnerException);
+                if (e.InnerException != null)
+                    Logger.LogFailure(new NpgsqlCommand(), e.InnerException);
             }
             catch (Exception e)
             {
@@ -186,7 +222,7 @@ namespace Marten.Services
 
             if (e is NpgsqlException)
             {
-                throw new MartenCommandException(cmd, e);
+                throw MartenCommandExceptionFactory.Create(cmd, e);
             }
         }
 
@@ -204,7 +240,7 @@ namespace Marten.Services
             _connection.Apply(cmd);
             try
             {
-                action(cmd);
+                _retryPolicy.Execute(() => action(cmd));
                 Logger.LogSuccess(cmd);
             }
             catch (Exception e)
@@ -223,7 +259,7 @@ namespace Marten.Services
             var cmd = _connection.CreateCommand();
             try
             {
-                action(cmd);
+                _retryPolicy.Execute(() => action(cmd));
                 Logger.LogSuccess(cmd);
             }
             catch (Exception e)
@@ -242,7 +278,7 @@ namespace Marten.Services
             var cmd = _connection.CreateCommand();
             try
             {
-                var returnValue = func(cmd);
+                var returnValue = _retryPolicy.Execute<T>(() => func(cmd));
                 Logger.LogSuccess(cmd);
                 return returnValue;
             }
@@ -263,7 +299,7 @@ namespace Marten.Services
 
             try
             {
-                var returnValue = func(cmd);
+                var returnValue = _retryPolicy.Execute<T>(() => func(cmd));
                 Logger.LogSuccess(cmd);
                 return returnValue;
             }
@@ -284,7 +320,7 @@ namespace Marten.Services
 
             try
             {
-                await action(cmd, token).ConfigureAwait(false);
+                await _retryPolicy.ExecuteAsync(async () => await action(cmd, token).ConfigureAwait(false), token);
                 Logger.LogSuccess(cmd);
             }
             catch (Exception e)
@@ -296,7 +332,7 @@ namespace Marten.Services
 
         public async Task ExecuteAsync(NpgsqlCommand cmd, Func<NpgsqlCommand, CancellationToken, Task> action, CancellationToken token = new CancellationToken())
         {
-            await buildConnectionAsync(token).ConfigureAwait(false);
+            await _retryPolicy.ExecuteAsync(async () => await buildConnectionAsync(token).ConfigureAwait(false), token);
 
             RequestCount++;
 
@@ -324,7 +360,7 @@ namespace Marten.Services
 
             try
             {
-                var returnValue = await func(cmd, token).ConfigureAwait(false);
+                var returnValue = await _retryPolicy.ExecuteAsync<T>(async () => await func(cmd, token).ConfigureAwait(false), token);
                 Logger.LogSuccess(cmd);
                 return returnValue;
             }
@@ -345,7 +381,7 @@ namespace Marten.Services
 
             try
             {
-                var returnValue = await func(cmd, token).ConfigureAwait(false);
+                var returnValue = await _retryPolicy.ExecuteAsync<T>(async () => await func(cmd, token).ConfigureAwait(false), token);
                 Logger.LogSuccess(cmd);
                 return returnValue;
             }
@@ -358,7 +394,6 @@ namespace Marten.Services
 
         public void Dispose()
         {
-            if (_mode == CommandRunnerMode.External) return;
             _connection?.Dispose();
         }
     }
@@ -366,5 +401,6 @@ namespace Marten.Services
     public static class PostgresErrorCodes
     {
         public const string SerializationFailure = "40001";
+        public const string FunctionDoesNotExist = "42883";
     }
 }

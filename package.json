@@ -1,6 +1,5 @@
 {
-  "name": "marten",
-  "version": "0.5.0",
+  "private": true,
   "description": "Javascript Projections",
   "dependencies": {},
   "scripts": {
@@ -9,7 +8,7 @@
   },
   "devDependencies": {
     "chai": "^3.4.1",
-    "lodash": "^3.10.1",
-    "mocha": "^2.3.4"
+    "lodash": "^4.17.13",
+    "mocha": "^5.2.0"
   }
 }

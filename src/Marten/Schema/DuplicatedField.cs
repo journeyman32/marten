@@ -11,38 +11,58 @@ using NpgsqlTypes;
 
 namespace Marten.Schema
 {
-    public class DuplicatedField : Field, IField
+    public class DuplicatedField: Field, IField
     {
-        private readonly NpgsqlDbType _dbType;
-        private readonly EnumStorage _enumStorage;
         private readonly Func<Expression, object> _parseObject = expression => expression.Value();
+        private readonly bool useTimestampWithoutTimeZoneForDateTime;
         private string _columnName;
 
-        public DuplicatedField(EnumStorage enumStorage, MemberInfo[] memberPath) : base(memberPath)
+        public DuplicatedField(EnumStorage enumStorage, MemberInfo[] memberPath, bool useTimestampWithoutTimeZoneForDateTime = true, bool notNull = false)
+            : base(enumStorage, memberPath, notNull)
         {
-            _enumStorage = enumStorage;
-            _dbType = TypeMappings.ToDbType(MemberType);
-
-
             ColumnName = MemberName.ToTableAlias();
+            this.useTimestampWithoutTimeZoneForDateTime = useTimestampWithoutTimeZoneForDateTime;
 
-            if (MemberType.GetTypeInfo().IsEnum)
+            if (MemberType.IsEnum)
             {
-                _parseObject = expression =>
+                if (enumStorage == EnumStorage.AsString)
                 {
-                    var raw = expression.Value();
-                    return Enum.GetName(MemberType, raw);
-                };
+                    DbType = NpgsqlDbType.Varchar;
+                    PgType = "varchar";
 
-                _dbType = NpgsqlDbType.Varchar;
-                PgType = "varchar";
+                    _parseObject = expression =>
+                    {
+                        var raw = expression.Value();
+                        return Enum.GetName(MemberType, raw);
+                    };
+                }
+                else
+                {
+                    DbType = NpgsqlDbType.Integer;
+                    PgType = "integer";
+                }
             }
             else if (MemberType.IsDateTime())
             {
+                PgType = this.useTimestampWithoutTimeZoneForDateTime ? "timestamp without time zone" : "timestamp with time zone";
+                DbType = this.useTimestampWithoutTimeZoneForDateTime ? NpgsqlDbType.Timestamp : NpgsqlDbType.TimestampTz;
+            }
+            else if (MemberType == typeof(DateTimeOffset) || MemberType == typeof(DateTimeOffset?))
+            {
                 PgType = "timestamp with time zone";
-                _dbType = NpgsqlDbType.TimestampTZ;
+                DbType = NpgsqlDbType.TimestampTz;
+            }
+            else
+            {
+                DbType = TypeMappings.ToDbType(MemberType);
             }
         }
+
+        /// <summary>
+        /// Used to override the assigned DbType used by Npgsql when a parameter
+        /// is used in a query against this column
+        /// </summary>
+        public NpgsqlDbType DbType { get; set; }
 
         public DuplicatedFieldRole Role { get; set; } = DuplicatedFieldRole.Search;
 
@@ -52,9 +72,8 @@ namespace Marten.Schema
             Column = ColumnName.ToLower(),
             PostgresType = PgType,
             Members = Members,
-            DbType = _dbType
+            DbType = DbType
         };
-
 
         public string SelectionLocator => SqlLocator;
 
@@ -78,11 +97,16 @@ namespace Marten.Schema
         // TODO -- have this take in CommandBuilder
         public string UpdateSqlFragment()
         {
-            var jsonField = new JsonLocatorField("d.data", _enumStorage, Casing.Default, Members);
-            // HOKEY, but I'm letting it pass for now.
-            var sqlLocator = jsonField.SqlLocator.Replace("d.", "");
-
-            return $"{ColumnName} = {sqlLocator}";
+            if ((DbType & NpgsqlDbType.Array) == NpgsqlDbType.Array && PgType != "jsonb")
+            {
+                var jsonField = new JsonLocatorField("data", new StoreOptions(), _enumStorage, Casing.Default, Members, "jsonb");
+                return $"{ColumnName} = CAST(ARRAY(SELECT jsonb_array_elements_text({jsonField.SqlLocator})) as {PgType})";
+            }
+            else
+            {
+                var jsonField = new JsonLocatorField("data", new StoreOptions(), _enumStorage, Casing.Default, Members, PgType);
+                return $"{ColumnName} = {jsonField.SqlLocator}";
+            }
         }
 
         public object GetValue(Expression valueExpression)
@@ -100,10 +124,9 @@ namespace Marten.Schema
             return $"{rootTableAlias}.{_columnName}";
         }
 
-
         public string SqlLocator { get; set; }
 
-        public static DuplicatedField For<T>(EnumStorage enumStorage, Expression<Func<T, object>> expression)
+        public static DuplicatedField For<T>(EnumStorage enumStorage, Expression<Func<T, object>> expression, bool useTimestampWithoutTimeZoneForDateTime = true, string pgType = null)
         {
             var accessor = ReflectionHelper.GetAccessor(expression);
 
@@ -113,11 +136,15 @@ namespace Marten.Schema
                 throw new NotSupportedException("Not yet supporting deep properties yet. Soon.");
             }
 
-
-            return new DuplicatedField(enumStorage, new MemberInfo[] {accessor.InnerProperty});
+            var duplicate = new DuplicatedField(enumStorage, new MemberInfo[] { accessor.InnerProperty }, useTimestampWithoutTimeZoneForDateTime);
+            if (pgType.IsNotEmpty())
+            {
+                duplicate.PgType = pgType;
+            }
+            return duplicate;
         }
 
-        // I say you don't need a ForeignKey 
+        // I say you don't need a ForeignKey
         public virtual TableColumn ToColumn()
         {
             return new TableColumn(ColumnName, PgType);

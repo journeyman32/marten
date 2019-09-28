@@ -3,9 +3,11 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 
+using System.Reflection;
+
 namespace Marten.Events.Projections
 {
-    public class ProjectionCollection : IEnumerable<IProjection>
+    public class ProjectionCollection: IEnumerable<IProjection>
     {
         private readonly StoreOptions _options;
         private readonly IList<IProjection> _projections = new List<IProjection>();
@@ -26,9 +28,8 @@ namespace Marten.Events.Projections
         }
 
         public AggregationProjection<T> AggregateStreamsWith<T>() where T : class, new()
-        {            
+        {
             var aggregator = _options.Events.AggregateFor<T>();
-
 
             IAggregationFinder<T> finder = _options.Events.StreamIdentity == StreamIdentity.AsGuid
                 ? (IAggregationFinder<T>)new AggregateFinder<T>()
@@ -51,14 +52,35 @@ namespace Marten.Events.Projections
 
         public void Add(IProjection projection)
         {
-            if (projection == null) throw new ArgumentNullException(nameof(projection));
+            if (projection == null)
+                throw new ArgumentNullException(nameof(projection));
 
             if (projection is IDocumentProjection)
             {
                 _options.Storage.MappingFor(projection.ProjectedType());
             }
-            
+
             _projections.Add(projection);
+        }
+
+        public void Add<T>() where T : IProjection, new()
+        {
+            Add(new T());
+        }
+
+        public void Add<T>(Func<T> projectionFactory) where T : IProjection, new()
+        {
+            var lazyLoadedProjection = new LazyLoadedProjection<T>(projectionFactory);
+
+            if (lazyLoadedProjection == null)
+                throw new ArgumentNullException(nameof(lazyLoadedProjection));
+
+            if (typeof(T).GetTypeInfo().IsAssignableFrom(typeof(IDocumentProjection).GetTypeInfo()))
+            {
+                _options.Storage.MappingFor(lazyLoadedProjection.ProjectedType());
+            }
+
+            _projections.Add(lazyLoadedProjection);
         }
 
         public IProjection ForView(Type viewType)

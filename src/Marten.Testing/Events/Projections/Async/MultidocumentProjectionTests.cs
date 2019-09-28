@@ -1,10 +1,12 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using Marten.Events.Projections;
 using Marten.Events.Projections.Async;
+using Marten.Storage;
 using Shouldly;
 using Xunit;
 
@@ -23,7 +25,7 @@ namespace Marten.Testing.Events.Projections.Async
         public class CompanyNameChanged
         {
             public Guid Id { get; set; }
-            public string NewName { get; set; }            
+            public string NewName { get; set; }
         }
 
         public class OrderPlaced
@@ -32,7 +34,7 @@ namespace Marten.Testing.Events.Projections.Async
             public Guid CompanyId { get; set; }
             public decimal TotalAmount { get; set; }
             public string[] Items { get; set; }
-        }        
+        }
     }
 
     public static class ReadModels
@@ -43,16 +45,17 @@ namespace Marten.Testing.Events.Projections.Async
             public decimal TotalAmount { get; set; }
             public string CompanyName { get; set; }
             public Guid CompanyId { get; set; }
+            public DateTime DateProcessed { get; set; }
         }
     }
 
     public static class Projections
     {
         /// <summary>
-        /// A projection which uses multiple streams and manages several document types: main Read Model it's builiding and 
+        /// A projection which uses multiple streams and manages several document types: main Read Model it's builiding and
         /// a side-readmodel used as a kind of helper
         /// </summary>
-        public class OrderProjection : DocumentsProjection
+        public class OrderProjection: DocumentsProjection
         {
             internal class CompanySideReadModel
             {
@@ -62,18 +65,20 @@ namespace Marten.Testing.Events.Projections.Async
 
             private void When(IDocumentSession session, Events.OrderPlaced created)
             {
+                Assert.Null(session.Load<ReadModels.Order>(created.Id));
                 var company = session.Load<CompanySideReadModel>(created.CompanyId);
                 session.Store(new ReadModels.Order()
                 {
                     Id = created.Id,
                     CompanyName = company?.Name,
                     TotalAmount = created.TotalAmount,
-                    CompanyId = created.CompanyId
-                });             
+                    CompanyId = created.CompanyId,
+                    DateProcessed = DateTime.UtcNow
+                });
             }
 
             private void When(IDocumentSession session, Events.CompanyCreated created)
-            {                
+            {
                 session.Store(new CompanySideReadModel()
                 {
                     Id = created.Id,
@@ -89,15 +94,19 @@ namespace Marten.Testing.Events.Projections.Async
                 session.Store(company);
 
                 session.Patch<ReadModels.Order>(x => x.CompanyId == changed.Id)
-                    .Set(x => x.CompanyName, changed.NewName);                
+                    .Set(x => x.CompanyName, changed.NewName);
+
+                session.Patch<ReadModels.Order>(x => x.CompanyId == changed.Id)
+                    .Set(x => x.DateProcessed, DateTime.UtcNow);
             }
 
-            #region Infrastructure and dispatching                       
-            public override Type[] Consumes => new[] {typeof(Events.CompanyCreated), typeof(Events.OrderPlaced), typeof(Events.CompanyNameChanged)};
+            #region Infrastructure and dispatching
+
+            public override Type[] Consumes => new[] { typeof(Events.CompanyCreated), typeof(Events.OrderPlaced), typeof(Events.CompanyNameChanged) };
 
             public override Type[] Produces => new[] { typeof(ReadModels.Order), typeof(CompanySideReadModel) };
 
-            public override AsyncOptions AsyncOptions { get; } = new AsyncOptions();          
+            public override AsyncOptions AsyncOptions { get; } = new AsyncOptions();
 
             public override void Apply(IDocumentSession session, EventPage page)
             {
@@ -113,19 +122,22 @@ namespace Marten.Testing.Events.Projections.Async
                         case Events.CompanyCreated created:
                             When(session, created);
                             break;
+
                         case Events.OrderPlaced placed:
                             When(session, placed);
                             break;
+
                         case Events.CompanyNameChanged changed:
                             When(session, changed);
                             break;
                     }
                     await session.SaveChangesAsync(token).ConfigureAwait(false);
-                }                
+                }
             }
-            #endregion
+
+            #endregion Infrastructure and dispatching
         }
-    }   
+    }
 
     public class MultidocumentProjectionTests: IntegratedFixture
     {
@@ -135,13 +147,16 @@ namespace Marten.Testing.Events.Projections.Async
         private static readonly Guid Order1Id = new Guid("C7F3F4B6-EDA9-4C5B-A0CF-6AE15EB83DEA");
         private static readonly Guid Order2Id = new Guid("367C1343-3A03-4888-A706-CA237B3CA020");
         private static readonly Guid Order3Id = new Guid("C3B5A850-92A1-449C-8653-B51BB56C84A3");
-        
-        [Fact]
-        public async Task Build_Projection_From_Stream()
+
+        [Theory]
+        [InlineData(TenancyStyle.Single)]
+        [InlineData(TenancyStyle.Conjoined)]
+        public async Task Build_Projection_From_Stream(TenancyStyle tenancyStyle)
         {
-            StoreOptions(cfg =>
+            StoreOptions(_ =>
             {
-                cfg.Events.AsyncProjections.Add(new Projections.OrderProjection());
+                _.Events.AsyncProjections.Add(new Projections.OrderProjection());
+                _.Events.TenancyStyle = tenancyStyle;
             });
 
             var daemon = theStore.BuildProjectionDaemon(logger: new DebugDaemonLogger());
@@ -152,14 +167,52 @@ namespace Marten.Testing.Events.Projections.Async
 
             using (var session = theStore.OpenSession())
             {
-                var order1 = session.Load<ReadModels.Order>(Order1Id);                
+                var order1 = session.Load<ReadModels.Order>(Order1Id);
                 var order2 = session.Load<ReadModels.Order>(Order2Id);
-                var order3 = session.Load<ReadModels.Order>(Order3Id);                
+                var order3 = session.Load<ReadModels.Order>(Order3Id);
 
-                order1.CompanyName.ShouldBe("Mexico Railways");                
+                order1.CompanyName.ShouldBe("Mexico Railways");
                 order2.CompanyName.ShouldBe("Mexico Railways");
-                
+
                 order3.CompanyName.ShouldBe("Microsoft");
+            }
+        }
+
+        [Fact]
+        public async Task Rebuild_LazyProjection_From_Stream()
+        {
+            StoreOptions(cfg =>
+            {
+                cfg.Events.AsyncProjections.Add(() => new Projections.OrderProjection());
+            });
+            // 1. publish events
+            await PublishEvents();
+
+            // 2. process them initially with daemon
+            using (var daemon = theStore.BuildProjectionDaemon(logger: new DebugDaemonLogger()))
+            {
+                daemon.StartAll();
+
+                await daemon.WaitForNonStaleResults();
+                await daemon.StopAll();
+            }
+
+            // daemon stopped, now rebuild them with a new one
+            var dt = DateTime.UtcNow;
+
+            using (var daemon2 = theStore.BuildProjectionDaemon(logger: new DebugDaemonLogger(), projections: theStore.Events.AsyncProjections.ToArray()))
+            {
+                await daemon2.RebuildAll(new CancellationTokenSource(10 * 1000).Token);
+                await daemon2.WaitForNonStaleResults(new CancellationTokenSource(10 * 1000).Token);
+            }
+
+            using (var session = theStore.OpenSession())
+            {
+                var order1 = session.Load<ReadModels.Order>(Order1Id);
+
+                order1.CompanyName.ShouldBe("Mexico Railways");
+
+                order1.DateProcessed.ShouldBeGreaterThanOrEqualTo(dt);
             }
         }
 
@@ -195,7 +248,7 @@ namespace Marten.Testing.Events.Projections.Async
             await daemon.WaitForNonStaleResults();
             using (var session = theStore.OpenSession())
             {
-                var order2 = session.Load<ReadModels.Order>(Order1Id);                
+                var order2 = session.Load<ReadModels.Order>(Order1Id);
                 order2.CompanyName.ShouldBe("Mexico Railways");
                 order2.ShouldNotBeTheSameAs(order1);
             }
@@ -207,7 +260,7 @@ namespace Marten.Testing.Events.Projections.Async
             {
                 foreach (var @event in GetEvents())
                 {
-                    var id = (Guid) @event.GetType() .GetTypeInfo().GetProperty("Id").GetValue(@event);
+                    var id = (Guid)@event.GetType().GetTypeInfo().GetProperty("Id").GetValue(@event);
                     sess.Events.Append(id, @event);
                     await sess.SaveChangesAsync();
                 }

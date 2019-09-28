@@ -1,31 +1,34 @@
-﻿using System;
+using System;
 using System.Linq;
 using System.Threading.Tasks;
 using Baseline;
 using Marten.Events;
 using Marten.Events.Projections;
 using Marten.Services;
+using Marten.Storage;
 using Shouldly;
 using Xunit;
 
 namespace Marten.Testing.Events.Projections
 {
-    public class inline_transformation_of_events : DocumentSessionFixture<NulloIdentityMap>
+    public class inline_transformation_of_events: DocumentSessionFixture<NulloIdentityMap>
     {
-        QuestStarted started = new QuestStarted { Name = "Find the Orb" };
-        MembersJoined joined = new MembersJoined { Day = 2, Location = "Faldor's Farm", Members = new string[] { "Garion", "Polgara", "Belgarath" } };
-        MonsterSlayed slayed1 = new MonsterSlayed { Name = "Troll" };
-        MonsterSlayed slayed2 = new MonsterSlayed { Name = "Dragon" };
+        private QuestStarted started = new QuestStarted { Name = "Find the Orb" };
+        private MembersJoined joined = new MembersJoined { Day = 2, Location = "Faldor's Farm", Members = new string[] { "Garion", "Polgara", "Belgarath" } };
+        private MonsterSlayed slayed1 = new MonsterSlayed { Name = "Troll" };
+        private MonsterSlayed slayed2 = new MonsterSlayed { Name = "Dragon" };
 
-        MembersJoined joined2 = new MembersJoined { Day = 5, Location = "Sendaria", Members = new string[] { "Silk", "Barak" } };
+        private MembersJoined joined2 = new MembersJoined { Day = 5, Location = "Sendaria", Members = new string[] { "Silk", "Barak" } };
 
-        [Fact]
-        public void sync_projection_of_events()
+        [Theory]
+        [InlineData(TenancyStyle.Single)]
+        [InlineData(TenancyStyle.Conjoined)]
+        public void sync_projection_of_events(TenancyStyle tenancyStyle)
         {
             StoreOptions(_ =>
             {
                 _.AutoCreateSchemaObjects = AutoCreate.All;
-
+                _.Events.TenancyStyle = tenancyStyle;
                 _.Events.InlineProjections.TransformEvents(new MonsterDefeatedTransform());
             });
 
@@ -70,7 +73,6 @@ namespace Marten.Testing.Events.Projections
             });
         }
 
-
         [Fact]
         public async Task async_projection_of_events()
         {
@@ -82,8 +84,6 @@ namespace Marten.Testing.Events.Projections
                 _.Events.InlineProjections.TransformEvents(new MonsterDefeatedTransform());
             });
             // ENDSAMPLE
-
-
 
             // The code below is just customizing the document store
             // used in the tests
@@ -108,11 +108,10 @@ namespace Marten.Testing.Events.Projections
                 doc.Monster.ShouldBe(e.Data.Name);
             }
         }
-
     }
 
     // SAMPLE: MonsterDefeatedTransform
-    public class MonsterDefeatedTransform : ITransform<MonsterSlayed, MonsterDefeated>
+    public class MonsterDefeatedTransform: ITransform<MonsterSlayed, MonsterDefeated>
     {
         public MonsterDefeated Transform(EventStream stream, Event<MonsterSlayed> input)
         {
@@ -129,5 +128,6 @@ namespace Marten.Testing.Events.Projections
         public Guid Id { get; set; }
         public string Monster { get; set; }
     }
+
     // ENDSAMPLE
 }

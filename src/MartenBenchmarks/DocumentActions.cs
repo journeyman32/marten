@@ -1,26 +1,22 @@
 ﻿using System.Linq;
 using BenchmarkDotNet.Attributes;
-using BenchmarkDotNet.Attributes.Exporters;
-using BenchmarkDotNet.Attributes.Jobs;
 using Marten.Testing;
 
 namespace MartenBenchmarks
 {
     [SimpleJob(warmupCount: 2)]
+    [MemoryDiagnoser]
     public class DocumentActions
     {
         public static Target[] Docs = Target.GenerateRandomData(100).ToArray();
 
-
-        [Setup]
+        [GlobalSetup]
         public void Setup()
         {
             BenchmarkStore.Store.Advanced.Clean.DeleteDocumentsFor(typeof(Target));
         }
 
         [Benchmark]
-        [MemoryDiagnoser]
-        
         public void InsertDocuments()
         {
             using (var session = BenchmarkStore.Store.OpenSession())
@@ -29,7 +25,5 @@ namespace MartenBenchmarks
                 session.SaveChanges();
             }
         }
-
-
     }
 }

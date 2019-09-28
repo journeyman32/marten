@@ -13,7 +13,7 @@ using Remotion.Linq;
 
 namespace Marten.Schema
 {
-    public class SubClassMapping : IDocumentMapping, IQueryableDocument
+    public class SubClassMapping: IDocumentMapping, IQueryableDocument
     {
         private readonly StoreOptions _storeOptions;
         private readonly DocumentMapping _inner;
@@ -25,7 +25,7 @@ namespace Marten.Schema
             _inner = new DocumentMapping(documentType, storeOptions);
             Parent = parent;
             Alias = alias ?? GetTypeMartenAlias(documentType);
-            Aliases = new[] {Alias};
+            Aliases = new[] { Alias };
         }
 
         public SubClassMapping(Type documentType, DocumentMapping parent, StoreOptions storeOptions,
@@ -41,9 +41,7 @@ namespace Marten.Schema
                 .Select(GetTypeMartenAlias).Concat(Aliases).ToArray();
         }
 
-
         public DocumentMapping Parent { get; }
-
 
         public string[] Aliases { get; }
         public string Alias { get; set; }
@@ -63,6 +61,7 @@ namespace Marten.Schema
         public IEnumerable<DuplicatedField> DuplicatedFields => Parent.DuplicatedFields;
         public DeleteStyle DeleteStyle => Parent.DeleteStyle;
 
+        public IDocumentMapping Root => Parent;
         public Type DocumentType { get; }
 
         public DbObjectName Table => Parent.Table;
@@ -76,7 +75,7 @@ namespace Marten.Schema
 
         public string[] SelectFields()
         {
-            return new[] {"data", "id", DocumentMapping.DocumentTypeColumn, DocumentMapping.VersionColumn };
+            return new[] { "data", "id", DocumentMapping.DocumentTypeColumn, DocumentMapping.VersionColumn };
         }
 
         public IField FieldFor(IEnumerable<MemberInfo> members)
@@ -88,7 +87,8 @@ namespace Marten.Schema
         {
             var extras = extraFilters(query).ToArray();
 
-            return query.Append(extras);
+            var extraCoumpound = new CompoundWhereFragment("and", extras);
+            return new CompoundWhereFragment("and", query, extraCoumpound);
         }
 
         private IEnumerable<IWhereFragment> extraFilters(IWhereFragment query)
@@ -100,7 +100,7 @@ namespace Marten.Schema
                 yield return DocumentMapping.ExcludeSoftDeletedDocuments();
             }
 
-            if (Parent.TenancyStyle == TenancyStyle.Conjoined)
+            if (Parent.TenancyStyle == TenancyStyle.Conjoined && !query.SpecifiesTenant())
             {
                 yield return new TenantWhereFragment();
             }
@@ -119,8 +119,6 @@ namespace Marten.Schema
             {
                 yield return DocumentMapping.ExcludeSoftDeletedDocuments();
             }
-
-            
         }
 
         public IWhereFragment DefaultWhereFragment()
@@ -153,7 +151,6 @@ namespace Marten.Schema
             return typeof(SubClassDocumentStorage<,>).CloseAndBuildAs<IDocumentStorage>(parentStorage, this, DocumentType,
                 Parent.DocumentType);
         }
-
 
         public void DeleteAllDocuments(ITenant factory)
         {

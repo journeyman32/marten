@@ -1,9 +1,8 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Data.Common;
 using System.Linq;
-using System.Reflection;
 using Baseline;
 using Marten.Schema;
 using Marten.Schema.Arguments;
@@ -26,14 +25,11 @@ namespace Marten.Util
             }
         }
 
-
-
         public static int RunSql(this NpgsqlConnection conn, params string[] sqls)
         {
             var sql = sqls.Join(";");
             return conn.CreateCommand().Sql(sql).ExecuteNonQuery();
         }
-
 
         public static IEnumerable<T> Fetch<T>(this NpgsqlCommand cmd, string sql, Func<DbDataReader, T> transform, params object[] parameters)
         {
@@ -43,8 +39,6 @@ namespace Marten.Util
                 var param = cmd.AddParameter(x);
                 cmd.CommandText = cmd.CommandText.UseParameter(param);
             });
-
-             
 
             var list = new List<T>();
 
@@ -59,10 +53,10 @@ namespace Marten.Util
             return list;
         }
 
-
         public static void AddParameters(this NpgsqlCommand command, object parameters)
         {
-            if (parameters == null) return;
+            if (parameters == null)
+                return;
 
             var parameterDictionary = parameters.GetType().GetProperties().ToDictionary(x => x.Name, x => x.GetValue(parameters, null));
 
@@ -147,8 +141,10 @@ namespace Marten.Util
 
         public static NpgsqlCommand CallsSproc(this NpgsqlCommand cmd, DbObjectName function)
         {
-            if (cmd == null) throw new ArgumentNullException(nameof(cmd));
-            if (function == null) throw new ArgumentNullException(nameof(function));
+            if (cmd == null)
+                throw new ArgumentNullException(nameof(cmd));
+            if (function == null)
+                throw new ArgumentNullException(nameof(function));
 
             cmd.CommandText = function.QualifiedName;
             cmd.CommandType = CommandType.StoredProcedure;
@@ -177,6 +173,5 @@ namespace Marten.Util
 
             return cmd;
         }
-
     }
 }

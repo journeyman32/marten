@@ -1,5 +1,4 @@
-﻿using System.Collections.Generic;
-using System.Data;
+using System.Collections.Generic;
 using Marten.Storage;
 using Npgsql;
 
@@ -7,16 +6,15 @@ namespace Marten.Services
 {
     public sealed class SessionOptions
     {
-
         /// <summary>
         /// Default to DocumentTracking.IdentityOnly
         /// </summary>
         public DocumentTracking Tracking { get; set; } = DocumentTracking.IdentityOnly;
 
         /// <summary>
-        /// Default to 30 seconds
+        /// If not specified, sessions default to Npgsql command timeout (30 seconds)
         /// </summary>
-        public int Timeout { get; set; } = 30;
+        public int? Timeout { get; set; }
 
         /// <summary>
         /// Default to IsolationLevel.ReadCommitted
@@ -27,8 +25,6 @@ namespace Marten.Services
         ///     Add, remove, or reorder local session listeners
         /// </summary>
         public readonly IList<IDocumentSessionListener> Listeners = new List<IDocumentSessionListener>();
-
-        
 
         /// <summary>
         /// Override the tenant id for the requested session
@@ -52,7 +48,7 @@ namespace Marten.Services
 
         /// <summary>
         /// Default is true. If false, Marten will issue commands on IDocumentSession.SaveChanges/SaveChangesAsync,
-        /// but will **not** commit the transaction 
+        /// but will **not** commit the transaction
         /// </summary>
         public bool OwnsTransactionLifecycle { get; set; } = true;
 
@@ -71,7 +67,6 @@ namespace Marten.Services
             };
         }
 
-#if NET46 || NETSTANDARD2_0
         private bool _enlistInAmbientTransactionScope = false;
 
         /// <summary>
@@ -97,7 +92,6 @@ namespace Marten.Services
         /// </summary>
         public System.Transactions.Transaction DotNetTransaction { get; set; }
 
-
         /// <summary>
         /// Open a session that enlists in the current, ambient TransactionScope
         /// </summary>
@@ -111,9 +105,7 @@ namespace Marten.Services
             };
         }
 
-#endif
-
-
+        internal bool OwnsConnection { get; set; } = true;
     }
 
     public enum ConcurrencyChecks

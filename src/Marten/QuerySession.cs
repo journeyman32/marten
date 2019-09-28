@@ -1,4 +1,5 @@
-﻿using System;
+using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -16,13 +17,13 @@ using Remotion.Linq.Parsing.Structure;
 
 namespace Marten
 {
-    public class QuerySession : IQuerySession
+    public class QuerySession: IQuerySession
     {
         public ITenant Tenant { get; }
         private readonly IManagedConnection _connection;
         private readonly IQueryParser _parser;
         private readonly IIdentityMap _identityMap;
-        protected readonly CharArrayTextWriter.Pool WriterPool;
+        protected readonly MemoryPool<char> WriterPool;
         private bool _disposed;
         protected readonly DocumentStore _store;
 
@@ -39,6 +40,7 @@ namespace Marten
         }
 
         public ISerializer Serializer { get; }
+
         public Guid? VersionFor<TDoc>(TDoc entity)
         {
             var id = _store.Storage.StorageFor(typeof(TDoc)).Identity(entity);
@@ -51,7 +53,8 @@ namespace Marten
 
         protected void assertNotDisposed()
         {
-            if (_disposed) throw new ObjectDisposedException("This session has been disposed");
+            if (_disposed)
+                throw new ObjectDisposedException("This session has been disposed");
         }
 
         public IMartenQueryable<T> Query<T>()
@@ -103,7 +106,8 @@ namespace Marten
 
         private T load<T>(object id)
         {
-            if (id == null) throw new ArgumentNullException(nameof(id));
+            if (id == null)
+                throw new ArgumentNullException(nameof(id));
 
             assertNotDisposed();
 
@@ -117,7 +121,8 @@ namespace Marten
             var mapping = Tenant.MappingFor(typeof(T));
             if (id.GetType() != mapping.IdType)
             {
-                if (id.GetType() == typeof(int) && mapping.IdType == typeof(long)) return;
+                if (id.GetType() == typeof(int) && mapping.IdType == typeof(long))
+                    return;
 
                 throw new InvalidOperationException(
                     $"The id type for {typeof(T).FullName} is {mapping.IdType.Name}, but got {id.GetType().Name}");
@@ -197,7 +202,7 @@ namespace Marten
             return LoadMany<T>().ByIdAsync(ids, token);
         }
 
-        private class LoadByKeys<TDoc> : ILoadByKeys<TDoc>
+        private class LoadByKeys<TDoc>: ILoadByKeys<TDoc>
         {
             private readonly QuerySession _parent;
 
@@ -223,7 +228,8 @@ namespace Marten
                 var mapping = _parent.Tenant.MappingFor(typeof(TDoc));
                 if (typeof(TKey) != mapping.IdType)
                 {
-                    if (typeof(TKey) == typeof(int) && mapping.IdType == typeof(long)) return;
+                    if (typeof(TKey) == typeof(int) && mapping.IdType == typeof(long))
+                        return;
 
                     throw new InvalidOperationException(
                         $"The id type for {typeof(TDoc).FullName} is {mapping.IdType.Name}, but got {typeof(TKey).Name}");
@@ -273,7 +279,6 @@ namespace Marten
                 var resolver = storage.As<IDocumentStorage<TDoc>>();
                 var cmd = storage.LoadByArrayCommand(keys);
                 cmd.AddTenancy(_parent.Tenant);
-                
 
                 var list = new List<TDoc>();
 
@@ -321,8 +326,7 @@ namespace Marten
         {
             assertNotDisposed();
 
-            QueryStatistics stats;
-            var handler = _store.HandlerFactory.HandlerFor(query, out stats);
+            var handler = _store.HandlerFactory.HandlerFor(query, out var stats);
             return _connection.Fetch(handler, _identityMap.ForQuery(), stats, Tenant);
         }
 
@@ -353,7 +357,6 @@ namespace Marten
 
         public int RequestCount => _connection.RequestCount;
 
-
         ~QuerySession()
         {
             Dispose();
@@ -361,10 +364,11 @@ namespace Marten
 
         public void Dispose()
         {
-            if (_disposed) return;
+            if (_disposed)
+                return;
 
             _disposed = true;
-            _connection.Dispose();
+            _connection?.Dispose();
             WriterPool?.Dispose();
         }
 
@@ -396,6 +400,46 @@ namespace Marten
         public Task<T> LoadAsync<T>(Guid id, CancellationToken token = new CancellationToken())
         {
             return loadAsync<T>(id, token);
+        }
+
+        public IReadOnlyList<TDoc> Search<TDoc>(string searchTerm, string regConfig = FullTextIndex.DefaultRegConfig)
+        {
+            return Query<TDoc>().Where(d => d.Search(searchTerm, regConfig)).ToList();
+        }
+
+        public Task<IReadOnlyList<TDoc>> SearchAsync<TDoc>(string searchTerm, string regConfig = FullTextIndex.DefaultRegConfig, CancellationToken token = default)
+        {
+            return Query<TDoc>().Where(d => d.Search(searchTerm, regConfig)).ToListAsync();
+        }
+
+        public IReadOnlyList<TDoc> PlainTextSearch<TDoc>(string searchTerm, string regConfig = FullTextIndex.DefaultRegConfig)
+        {
+            return Query<TDoc>().Where(d => d.PlainTextSearch(searchTerm, regConfig)).ToList();
+        }
+
+        public Task<IReadOnlyList<TDoc>> PlainTextSearchAsync<TDoc>(string searchTerm, string regConfig = FullTextIndex.DefaultRegConfig, CancellationToken token = default)
+        {
+            return Query<TDoc>().Where(d => d.PlainTextSearch(searchTerm, regConfig)).ToListAsync();
+        }
+
+        public IReadOnlyList<TDoc> PhraseSearch<TDoc>(string searchTerm, string regConfig = FullTextIndex.DefaultRegConfig)
+        {
+            return Query<TDoc>().Where(d => d.PhraseSearch(searchTerm, regConfig)).ToList();
+        }
+
+        public Task<IReadOnlyList<TDoc>> PhraseSearchAsync<TDoc>(string searchTerm, string regConfig = FullTextIndex.DefaultRegConfig, CancellationToken token = default)
+        {
+            return Query<TDoc>().Where(d => d.PhraseSearch(searchTerm, regConfig)).ToListAsync();
+        }
+
+        public IReadOnlyList<TDoc> WebStyleSearch<TDoc>(string searchTerm, string regConfig = FullTextIndex.DefaultRegConfig)
+        {
+            return Query<TDoc>().Where(d => d.WebStyleSearch(searchTerm, regConfig)).ToList();
+        }
+
+        public Task<IReadOnlyList<TDoc>> WebStyleSearchAsync<TDoc>(string searchTerm, string regConfig = FullTextIndex.DefaultRegConfig, CancellationToken token = default)
+        {
+            return Query<TDoc>().Where(d => d.WebStyleSearch(searchTerm, regConfig)).ToListAsync();
         }
     }
 }

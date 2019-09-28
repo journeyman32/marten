@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Data.Common;
 using System.Linq;
@@ -10,7 +10,7 @@ using Marten.Util;
 
 namespace Marten.Linq.QueryHandlers
 {
-    public class UserSuppliedQueryHandler<T> : IQueryHandler<IReadOnlyList<T>>
+    public class UserSuppliedQueryHandler<T>: IQueryHandler<IReadOnlyList<T>>
     {
         private readonly DocumentStore _store;
         private readonly string _sql;
@@ -35,7 +35,7 @@ namespace Marten.Linq.QueryHandlers
                 builder.Append("select data from ");
                 builder.Append(tableName);
 
-                if (_sql.StartsWith("where", StringComparison.OrdinalIgnoreCase))
+                if (_sql.TrimStart().StartsWith("where", StringComparison.OrdinalIgnoreCase))
                 {
                     builder.Append(" ");
                 }
@@ -44,8 +44,6 @@ namespace Marten.Linq.QueryHandlers
                     builder.Append(" where ");
                 }
             }
-
-            
 
             builder.Append(_sql);
 
@@ -77,7 +75,5 @@ namespace Marten.Linq.QueryHandlers
 
             return selector.ReadAsync(reader, map, stats, token);
         }
-
-        
     }
 }

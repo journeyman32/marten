@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using Baseline;
 using Marten.Schema;
@@ -51,7 +50,6 @@ namespace Marten.Events
                                      .Param("dotnet_types", dotnetTypes);
             }
 
-
             return batch.Sproc(AppendEventFunction, new EventStreamVersioningCallback(stream))
                         .Param("stream", stream.Key)
                         .Param("stream_type", streamTypeName)
@@ -61,7 +59,7 @@ namespace Marten.Events
                         .Param("dotnet_types", dotnetTypes);
         }
 
-        static void AddJsonBodies(UpdateBatch batch, SprocCall sprocCall, IEvent[] events)
+        private static void AddJsonBodies(UpdateBatch batch, SprocCall sprocCall, IEvent[] events)
         {
             var serializer = batch.Serializer;
 
@@ -80,16 +78,11 @@ namespace Marten.Events
             }
         }
 
-        static ArraySegment<char> SerializeToCharArraySegment(UpdateBatch batch, ISerializer serializer, object data)
+        private static ArraySegment<char> SerializeToCharArraySegment(UpdateBatch batch, ISerializer serializer, object data)
         {
             var writer = batch.GetWriter();
             serializer.ToJson(data, writer);
-            return new ArraySegment<char>(writer.Buffer, 0, writer.Size);
-        }
-
-        public void RegisterUpdate(UpdateBatch batch, object entity, string json)
-        {
-            throw new NotSupportedException();
+            return writer.ToCharSegment();
         }
     }
 }

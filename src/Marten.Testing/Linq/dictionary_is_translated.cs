@@ -1,12 +1,12 @@
-﻿using Marten.Services;
-using System;
 using System.Collections.Generic;
 using System.Linq;
+using Marten.Services;
+using Shouldly;
 using Xunit;
 
 namespace Marten.Testing.Linq
 {
-    public class dictionary_is_translated : DocumentSessionFixture<NulloIdentityMap>
+    public class dictionary_is_translated: DocumentSessionFixture<NulloIdentityMap>
     {
         public dictionary_is_translated()
         {

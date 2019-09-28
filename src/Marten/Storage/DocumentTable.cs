@@ -7,15 +7,15 @@ using Marten.Util;
 
 namespace Marten.Storage
 {
-    public class DocumentTable : Table
+    public class DocumentTable: Table
     {
         public DocumentTable(DocumentMapping mapping) : base(mapping.Table)
         {
             // validate to ensure document has an Identity field or property
             mapping.Validate();
 
-            var pgIdType = TypeMappings.GetPgType(mapping.IdMember.GetMemberType());
-            var pgTextType = TypeMappings.GetPgType(string.Empty.GetType());
+            var pgIdType = TypeMappings.GetPgType(mapping.IdMember.GetMemberType(), mapping.EnumStorage);
+            var pgTextType = TypeMappings.GetPgType(string.Empty.GetType(), mapping.EnumStorage);
 
             var idColumn = new TableColumn("id", pgIdType);
             if (mapping.TenancyStyle == TenancyStyle.Conjoined)
@@ -56,11 +56,9 @@ namespace Marten.Storage
                 AddColumn<DeletedAtColumn>();
             }
 
-
             Indexes.AddRange(mapping.Indexes);
             ForeignKeys.AddRange(mapping.ForeignKeys);
         }
-
 
         public string BuildTemplate(string template)
         {
@@ -89,10 +87,13 @@ namespace Marten.Storage
 
         public override bool Equals(object obj)
         {
-            if (ReferenceEquals(null, obj)) return false;
-            if (ReferenceEquals(this, obj)) return true;
-            if (obj.GetType() != this.GetType()) return false;
-            return Equals((DocumentTable) obj);
+            if (ReferenceEquals(null, obj))
+                return false;
+            if (ReferenceEquals(this, obj))
+                return true;
+            if (obj.GetType() != this.GetType())
+                return false;
+            return Equals((DocumentTable)obj);
         }
 
         public override int GetHashCode()
@@ -101,14 +102,14 @@ namespace Marten.Storage
         }
     }
 
-    public abstract class SystemColumn : TableColumn
+    public abstract class SystemColumn: TableColumn
     {
         protected SystemColumn(string name, string type) : base(name, type)
         {
         }
     }
 
-    public class TenantIdColumn : SystemColumn
+    public class TenantIdColumn: SystemColumn
     {
         public new static readonly string Name = "tenant_id";
 
@@ -119,16 +120,16 @@ namespace Marten.Storage
         }
     }
 
-    public class DeletedColumn : SystemColumn
+    public class DeletedColumn: SystemColumn
     {
         public DeletedColumn() : base(DocumentMapping.DeletedColumn, "boolean")
         {
             Directive = "DEFAULT FALSE";
             CanAdd = true;
-		}
+        }
     }
 
-    public class DeletedAtColumn : SystemColumn
+    public class DeletedAtColumn: SystemColumn
     {
         public DeletedAtColumn() : base(DocumentMapping.DeletedAtColumn, "timestamp with time zone")
         {
@@ -137,17 +138,17 @@ namespace Marten.Storage
         }
     }
 
-    public class DocumentTypeColumn : SystemColumn
+    public class DocumentTypeColumn: SystemColumn
     {
         public DocumentTypeColumn(DocumentMapping mapping) : base(DocumentMapping.DocumentTypeColumn, "varchar")
         {
             CanAdd = true;
             Directive = $"DEFAULT '{mapping.AliasFor(mapping.DocumentType)}'";
-			      mapping.AddIndex(DocumentMapping.DocumentTypeColumn);
+            mapping.AddIndex(DocumentMapping.DocumentTypeColumn);
         }
     }
 
-    public class LastModifiedColumn : SystemColumn
+    public class LastModifiedColumn: SystemColumn
     {
         public LastModifiedColumn() : base(DocumentMapping.LastModifiedColumn, "timestamp with time zone")
         {
@@ -156,7 +157,7 @@ namespace Marten.Storage
         }
     }
 
-    public class VersionColumn : SystemColumn
+    public class VersionColumn: SystemColumn
     {
         public VersionColumn() : base(DocumentMapping.VersionColumn, "uuid")
         {
@@ -165,7 +166,7 @@ namespace Marten.Storage
         }
     }
 
-    public class DotNetTypeColumn : SystemColumn
+    public class DotNetTypeColumn: SystemColumn
     {
         public DotNetTypeColumn() : base(DocumentMapping.DotNetTypeColumn, "varchar")
         {
@@ -173,11 +174,14 @@ namespace Marten.Storage
         }
     }
 
-    public class DuplicatedFieldColumn : TableColumn
+    public class DuplicatedFieldColumn: TableColumn
     {
         private readonly DuplicatedField _field;
+        private const string NullConstraint = "NULL";
+        private const string NotNullConstraint = "NOT NULL";
 
-        public DuplicatedFieldColumn(DuplicatedField field) : base(field.ColumnName, field.PgType)
+
+        public DuplicatedFieldColumn(DuplicatedField field) : base(field.ColumnName, field.PgType, field.NotNull ? NotNullConstraint : NullConstraint)
         {
             CanAdd = true;
             _field = field;
@@ -185,7 +189,7 @@ namespace Marten.Storage
 
         public override string AddColumnSql(Table table)
         {
-            return $"{base.AddColumnSql(table)};update {table.Identifier} set {_field.UpdateSqlFragment()};";
+            return $"{base.AddColumnSql(table)}update {table.Identifier} set {_field.UpdateSqlFragment()};";
         }
     }
 }

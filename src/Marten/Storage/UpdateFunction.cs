@@ -3,7 +3,7 @@ using Marten.Schema;
 
 namespace Marten.Storage
 {
-    public class UpdateFunction : UpsertFunction
+    public class UpdateFunction: UpsertFunction
     {
         public UpdateFunction(DocumentMapping mapping) : base(mapping, mapping.UpdateFunction)
         {
@@ -25,7 +25,7 @@ DECLARE
 BEGIN
   {statement}
 
-  SELECT mt_version FROM {_tableName} into final_version WHERE id = docId;
+  SELECT mt_version FROM {_tableName} into final_version WHERE id = docId {_andTenantWhereClause};
   RETURN final_version;
 END;
 $function$;

@@ -2,14 +2,14 @@ using System;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
-using Baseline;
+using System.Text;
 using Baseline.Reflection;
 using Marten.Linq;
 using Marten.Util;
 
 namespace Marten.Schema
 {
-    public class JsonLocatorField : Field, IField
+    public class JsonLocatorField: Field, IField
     {
         public static JsonLocatorField For<T>(EnumStorage enumStyle, Casing casing, Expression<Func<T, object>> expression)
         {
@@ -20,29 +20,43 @@ namespace Marten.Schema
 
         private readonly Func<Expression, object> _parseObject = expression => expression.Value();
 
-        public JsonLocatorField(string dataLocator, StoreOptions options, EnumStorage enumStyle, Casing casing, MemberInfo member) : base(member)
+        public JsonLocatorField(string dataLocator, StoreOptions options, EnumStorage enumStyle, Casing casing, MemberInfo member) :
+            this(dataLocator, options, enumStyle, casing, new[] { member }, null)
         {
-            var memberType = member.GetMemberType();
-            var memberName = member.Name.FormatCase(casing);
+        }
 
-            var isStringEnum = memberType.GetTypeInfo().IsEnum && enumStyle == EnumStorage.AsString;
-            if (memberType == typeof (string) || isStringEnum)
+        public JsonLocatorField(string dataLocator, StoreOptions options, EnumStorage enumStyle, Casing casing, MemberInfo[] members, string pgType = null) : base(enumStyle, members)
+        {
+            var locator = CommandBuilder.BuildJsonStringLocator(dataLocator, members, casing);
+
+            var isStringEnum = MemberType.IsEnum && enumStyle == EnumStorage.AsString;
+
+            if (!string.IsNullOrWhiteSpace(pgType))
             {
-                SqlLocator = $"{dataLocator} ->> '{memberName}'";
+                PgType = pgType;
             }
-            else if (memberType == typeof(DateTime) || memberType == typeof(DateTime?))
+
+            if (MemberType == typeof(string) || isStringEnum)
             {
-                SqlLocator = $"{options.DatabaseSchemaName}.mt_immutable_timestamp({dataLocator} ->> '{memberName}')";
-                SelectionLocator = $"CAST({dataLocator} ->> '{memberName}' as {PgType})";
+                SqlLocator = $"{locator}";
             }
-            else if (memberType == typeof(DateTimeOffset) || memberType == typeof(DateTimeOffset?))
+            else if (TypeMappings.TimespanTypes.Contains(MemberType))
             {
-                SqlLocator = $"{options.DatabaseSchemaName}.mt_immutable_timestamp({dataLocator} ->> '{memberName}')";
-                SelectionLocator = $"CAST({dataLocator} ->> '{memberName}' as {PgType})";
+                SqlLocator = $"{options?.DatabaseSchemaName ?? StoreOptions.DefaultDatabaseSchemaName}.mt_immutable_timestamp({locator})";
+                SelectionLocator = $"CAST({locator} as {PgType})";
+            }
+            else if (TypeMappings.TimespanZTypes.Contains(MemberType))
+            {
+                SqlLocator = $"{options?.DatabaseSchemaName ?? StoreOptions.DefaultDatabaseSchemaName}.mt_immutable_timestamptz({locator})";
+                SelectionLocator = $"CAST({locator} as {PgType})";
+            }
+            else if (MemberType.IsArray)
+            {
+                SqlLocator = $"CAST({locator} as jsonb)";
             }
             else
             {
-                SqlLocator = $"CAST({dataLocator} ->> '{memberName}' as {PgType})";
+                SqlLocator = $"CAST({locator} as {PgType})";
             }
 
             if (isStringEnum)
@@ -60,28 +74,10 @@ namespace Marten.Schema
             }
         }
 
-        public JsonLocatorField(string dataLocator, EnumStorage enumStyle, Casing casing, MemberInfo[] members) : base(members)
+        [Obsolete("Use a constructor that takes StoreOptions instead. This might be removed in v4.0.")]
+        public JsonLocatorField(string dataLocator, EnumStorage enumStyle, Casing casing, MemberInfo[] members) :
+            this(dataLocator, null, enumStyle, casing, members, null)
         {
-            var locator = dataLocator;
-
-            for (int i = 0; i < members.Length - 1; i++)
-            {
-                locator += $" -> '{members[i].Name.FormatCase(casing)}'";
-            }
-
-            locator += $" ->> '{members.Last().Name.FormatCase(casing)}'";
-
-            SqlLocator = MemberType == typeof (string) ? locator : locator.ApplyCastToLocator(enumStyle, MemberType);
-
-            var isStringEnum = MemberType.GetTypeInfo().IsEnum && enumStyle == EnumStorage.AsString;
-            if (isStringEnum)
-            {
-                _parseObject = expression =>
-                {
-                    var raw = expression.Value();
-                    return Enum.GetName(MemberType, raw);
-                };
-            }
         }
 
         public string ToComputedIndex(DbObjectName tableName)
@@ -91,7 +87,8 @@ namespace Marten.Schema
 
         public string SqlLocator { get; }
         public string SelectionLocator { get; }
-        public string ColumnName => String.Empty;
+        public string ColumnName => string.Empty;
+
         public void WritePatch(DocumentMapping mapping, SchemaPatch patch)
         {
             throw new NotSupportedException();
@@ -104,16 +101,13 @@ namespace Marten.Schema
 
         public bool ShouldUseContainmentOperator()
         {
-            return MemberType.IsOneOf(typeof(DateTime), typeof(DateTime?), typeof(DateTimeOffset),
-                typeof(DateTimeOffset?));
+            return TypeMappings.ContainmentOperatorTypes.Contains(MemberType);
         }
 
         public string LocatorFor(string rootTableAlias)
         {
-            // Super hokey. 
+            // Super hokey.
             return SqlLocator.Replace("d.", rootTableAlias + ".");
         }
     }
-
-    
 }

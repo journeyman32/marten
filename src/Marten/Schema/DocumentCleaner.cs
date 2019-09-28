@@ -1,12 +1,13 @@
-﻿using System;
+using System;
 using System.Linq;
 using Baseline;
 using Marten.Services;
 using Marten.Storage;
+using Marten.Util;
 
 namespace Marten.Schema
 {
-    public class DocumentCleaner : IDocumentCleaner
+    public class DocumentCleaner: IDocumentCleaner
     {
         public static string DropAllFunctionSql = @"
 SELECT format('DROP FUNCTION %s.%s(%s);'
@@ -14,7 +15,7 @@ SELECT format('DROP FUNCTION %s.%s(%s);'
              ,p.proname
              ,pg_get_function_identity_arguments(p.oid))
 FROM   pg_proc p
-LEFT JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace 
+LEFT JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
 WHERE  p.proname like 'mt_%' and n.nspname = ANY(?)";
 
         public static readonly string DropFunctionSql = @"
@@ -23,9 +24,15 @@ SELECT format('DROP FUNCTION %s.%s(%s);'
              ,p.proname
              ,pg_get_function_identity_arguments(p.oid))
 FROM   pg_proc p
-LEFT JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace 
+LEFT JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
 WHERE  p.proname = '{0}'
 AND    n.nspname = '{1}';";
+
+        public static readonly string DropAllSequencesSql = @"SELECT format('DROP SEQUENCE %s.%s;'
+             ,s.sequence_schema
+             ,s.sequence_name)
+FROM   information_schema.sequences s
+WHERE  s.sequence_name like 'mt_%' and s.sequence_schema = ANY(?);";
 
         private readonly StoreOptions _options;
         private readonly ITenant _tenant;
@@ -88,7 +95,10 @@ AND    n.nspname = '{1}';";
                 schemaTables
                     .Each(tableName => { connection.Execute($"DROP TABLE IF EXISTS {tableName} CASCADE;"); });
 
-                var drops = connection.GetStringList(DropAllFunctionSql, new object[] { _options.Storage.AllSchemaNames() });
+                var allSchemas = new object[] { _options.Storage.AllSchemaNames() };
+
+                var drops = connection.GetStringList(DropAllFunctionSql, allSchemas)
+                    .Concat(connection.GetStringList(DropAllSequencesSql, allSchemas));
                 drops.Each(drop => connection.Execute(drop));
                 connection.Commit();
 
@@ -103,6 +113,49 @@ AND    n.nspname = '{1}';";
                 connection.Execute($"truncate table {_options.Events.DatabaseSchemaName}.mt_events cascade;" +
                                    $"truncate table {_options.Events.DatabaseSchemaName}.mt_streams cascade");
                 connection.Commit();
+            }
+        }
+
+        public void DeleteSingleEventStream(Guid streamId)
+        {
+            DeleteSingleEventStream<Guid>(streamId);
+        }
+
+        public void DeleteSingleEventStream(string streamId)
+        {
+            DeleteSingleEventStream<string>(streamId);
+        }
+
+        private void DeleteSingleEventStream<T>(T streamId)
+        {
+            if (typeof(T) != _options.Events.GetStreamIdType())
+            {
+                throw new ArgumentException($"{nameof(streamId)} should  be of type {_options.Events.GetStreamIdType()}", nameof(streamId));
+            }
+
+            using (var conn = _tenant.CreateConnection())
+            {
+                var streamsWhere = "id = :id";
+                var eventsWhere = "stream_id = :id";
+
+                if (_options.Events.TenancyStyle == TenancyStyle.Conjoined)
+                {
+                    var tenantPart = $" AND tenant_id = :tenantId";
+                    streamsWhere += tenantPart;
+                    eventsWhere += tenantPart;
+                }
+
+                var cmd = conn.CreateCommand().WithText($"delete from {_options.Events.DatabaseSchemaName}.mt_events where {eventsWhere};delete from {_options.Events.DatabaseSchemaName}.mt_streams where {streamsWhere}");
+                cmd.AddNamedParameter("id", streamId);
+
+                if (_options.Events.TenancyStyle == TenancyStyle.Conjoined)
+                {
+                    cmd.AddNamedParameter("tenantId", _tenant.TenantId);
+                }
+
+                conn.Open();
+
+                cmd.ExecuteNonQuery();
             }
         }
     }

@@ -1,6 +1,5 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
-using System.Data;
 using Marten.Events;
 using Marten.Events.Projections;
 using Marten.Events.Projections.Async;
@@ -12,7 +11,7 @@ using IsolationLevel = System.Data.IsolationLevel;
 
 namespace Marten
 {
-    public interface IDocumentStore : IDisposable
+    public interface IDocumentStore: IDisposable
     {
         /// <summary>
         ///     Information about the document and event storage
@@ -37,7 +36,7 @@ namespace Marten
         /// <param name="documents"></param>
         /// <param name="mode"></param>
         /// <param name="batchSize"></param>
-        void BulkInsert<T>(T[] documents, BulkInsertMode mode = BulkInsertMode.InsertsOnly, int batchSize = 1000);
+        void BulkInsert<T>(IReadOnlyCollection<T> documents, BulkInsertMode mode = BulkInsertMode.InsertsOnly, int batchSize = 1000);
 
         /// <summary>
         ///     Uses Postgresql's COPY ... FROM STDIN BINARY feature to efficiently store
@@ -48,8 +47,7 @@ namespace Marten
         /// <param name="documents"></param>
         /// <param name="mode"></param>
         /// <param name="batchSize"></param>
-        void BulkInsert<T>(string tenantId, T[] documents, BulkInsertMode mode = BulkInsertMode.InsertsOnly, int batchSize = 1000);
-
+        void BulkInsert<T>(string tenantId, IReadOnlyCollection<T> documents, BulkInsertMode mode = BulkInsertMode.InsertsOnly, int batchSize = 1000);
 
         /// <summary>
         ///     Open a new IDocumentSession with the supplied DocumentTracking.
@@ -68,7 +66,6 @@ namespace Marten
         /// <returns></returns>
         IDocumentSession OpenSession(string tenantId, DocumentTracking tracking = DocumentTracking.IdentityOnly,
             IsolationLevel isolationLevel = IsolationLevel.ReadCommitted);
-
 
         /// <summary>
         ///     Open a new IDocumentSession with the supplied DocumentTracking.
@@ -92,7 +89,6 @@ namespace Marten
         /// <returns></returns>
         IDocumentSession LightweightSession(string tenantId, IsolationLevel isolationLevel = IsolationLevel.ReadCommitted);
 
-
         /// <summary>
         ///     Convenience method to create an IDocumentSession with both IdentityMap and automatic
         ///     dirty checking
@@ -100,14 +96,12 @@ namespace Marten
         /// <returns></returns>
         IDocumentSession DirtyTrackedSession(IsolationLevel isolationLevel = IsolationLevel.ReadCommitted);
 
-
         /// <summary>
         ///     Convenience method to create an IDocumentSession with both IdentityMap and automatic
         ///     dirty checking
         /// </summary>
         /// <returns></returns>
         IDocumentSession DirtyTrackedSession(string tenantId, IsolationLevel isolationLevel = IsolationLevel.ReadCommitted);
-
 
         /// <summary>
         ///     Opens a read-only IQuerySession to the current document store for efficient
@@ -127,7 +121,7 @@ namespace Marten
         ///     Opens a read-only IQuerySession to the current document store for efficient
         ///     querying without any underlying object tracking.
         /// </summary>
-        /// <param name="options">Additional options for session. DocumentTracking is not applicable for IQuerySession.</param>        
+        /// <param name="options">Additional options for session. DocumentTracking is not applicable for IQuerySession.</param>
         /// <returns></returns>
         IQuerySession QuerySession(SessionOptions options);
 
@@ -149,7 +143,6 @@ namespace Marten
         void BulkInsertDocuments(string tenantId, IEnumerable<object> documents, BulkInsertMode mode = BulkInsertMode.InsertsOnly,
             int batchSize = 1000);
 
-
         /// <summary>
         /// Use Javascript transformations to alter existing documents
         /// </summary>
@@ -157,7 +150,6 @@ namespace Marten
 
         EventGraph Events { get; }
         ITenancy Tenancy { get; }
-
 
         IDaemon BuildProjectionDaemon(Type[] viewTypes = null, IDaemonLogger logger = null, DaemonSettings settings = null, IProjection[] projections = null);
     }

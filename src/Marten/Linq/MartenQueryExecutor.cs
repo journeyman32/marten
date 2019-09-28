@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using Baseline;
@@ -10,7 +10,7 @@ using Remotion.Linq;
 
 namespace Marten.Linq
 {
-    public class MartenQueryExecutor : IQueryExecutor
+    public class MartenQueryExecutor: IQueryExecutor
     {
         private readonly IList<IIncludeJoin> _includes = new List<IIncludeJoin>();
 
@@ -31,7 +31,6 @@ namespace Marten.Linq
         public ITenant Tenant { get; }
         public QueryStatistics Statistics { get; set; }
 
-
         T IQueryExecutor.ExecuteScalar<T>(QueryModel queryModel)
         {
             var handler = Store.HandlerFactory.HandlerForScalarQuery<T>(queryModel, Includes.ToArray(),
@@ -43,7 +42,6 @@ namespace Marten.Linq
 
             return Connection.Fetch(handler, IdentityMap.ForQuery(), Statistics, Tenant);
         }
-
 
         T IQueryExecutor.ExecuteSingle<T>(QueryModel queryModel, bool returnDefaultWhenEmpty)
         {

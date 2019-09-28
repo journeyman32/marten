@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using Baseline;
@@ -45,6 +45,7 @@ namespace Marten.Testing
             target.String = _strings[_random.Next(0, 10)];
             target.AnotherString = _otherStrings[_random.Next(0, 10)];
             target.Number = _random.Next();
+            target.AnotherNumber = _random.Next();
 
             target.Flag = _random.Next(0, 10) > 5;
 
@@ -101,6 +102,9 @@ namespace Marten.Testing
         public Guid Id { get; set; }
 
         public int Number { get; set; }
+
+        public int AnotherNumber { get; set; }
+
         public long Long { get; set; }
         public string String { get; set; }
         public string AnotherString { get; set; }
@@ -124,17 +128,20 @@ namespace Marten.Testing
 
         public int[] NumberArray { get; set; }
 
+        public string[] TagsArray { get; set; }
+
+        public HashSet<string> TagsHashSet { get; set; }
 
         public Target[] Children { get; set; }
 
         public int? NullableNumber { get; set; }
         public DateTime? NullableDateTime { get; set; }
         public bool? NullableBoolean { get; set; }
+        public Colors? NullableColor { get; set; }
 
-        public IDictionary<string,string> StringDict { get; set; }
+        public IDictionary<string, string> StringDict { get; set; }
 
         public Guid UserId { get; set; }
-
     }
 
     public class Address

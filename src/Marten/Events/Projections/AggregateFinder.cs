@@ -1,11 +1,10 @@
 using System;
-using System.Diagnostics;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Threading;
 using System.Threading.Tasks;
-using FastExpressionCompiler;
 using Marten.Schema;
+using Marten.Util;
 
 namespace Marten.Events.Projections
 {
@@ -13,16 +12,16 @@ namespace Marten.Events.Projections
     /// Simple aggregation finder that looks for an aggregate document based on the stream id
     /// </summary>
     /// <typeparam name="T"></typeparam>
-    public class AggregateFinder<T> : IAggregationFinder<T> where T : class, new()
+    public class AggregateFinder<T>: IAggregationFinder<T> where T : class, new()
     {
         private readonly Action<T, Guid> _setId;
 
         public AggregateFinder()
         {
-            var idMember = DocumentMapping.FindIdMember(typeof (T));
+            var idMember = DocumentMapping.FindIdMember(typeof(T));
 
-            var docParam = Expression.Parameter(typeof (T), "doc");
-            var idParam = Expression.Parameter(typeof (Guid), "id");
+            var docParam = Expression.Parameter(typeof(T), "doc");
+            var idParam = Expression.Parameter(typeof(Guid), "id");
 
             var member = Expression.PropertyOrField(docParam, idMember.Name);
             var assign = Expression.Assign(member, idParam);
@@ -34,7 +33,7 @@ namespace Marten.Events.Projections
 
         public T Find(EventStream stream, IDocumentSession session)
         {
-            var returnValue =  stream.IsNew ? new T() : session.Load<T>(stream.Id) ?? new T();
+            var returnValue = stream.IsNew ? new T() : session.Load<T>(stream.Id) ?? new T();
             _setId(returnValue, stream.Id);
 
             return returnValue;
@@ -51,7 +50,10 @@ namespace Marten.Events.Projections
 
         public async Task FetchAllAggregates(IDocumentSession session, EventStream[] streams, CancellationToken token)
         {
-            await session.LoadManyAsync<T>(token, streams.Select(x => x.Id).ToArray()).ConfigureAwait(false);
+            if (streams.Length > 0)
+            {
+                await session.LoadManyAsync<T>(token, streams.Select(x => x.Id).ToArray()).ConfigureAwait(false);
+            }
         }
     }
 }

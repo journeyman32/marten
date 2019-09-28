@@ -16,7 +16,7 @@ namespace Marten.Testing.Schema
             var mapping = DocumentMapping.For<Organization>();
             var duplicate = mapping.DuplicatedFields.Single(x => x.MemberName == "Time2");
 
-            duplicate.PgType.ShouldBe("timestamp with time zone");
+            duplicate.PgType.ShouldBe("timestamp without time zone");
         }
 
         [Fact]
@@ -36,6 +36,15 @@ namespace Marten.Testing.Schema
 
             indexDefinition.Method.ShouldBe(IndexMethod.hash);
         }
+        
+        [Fact]
+        public void can_override_index_sort_order_on_the_attribute()
+        {
+            var mapping = DocumentMapping.For<Organization>();
+            var indexDefinition = mapping.Indexes.Cast<IndexDefinition>().Single(x => x.Columns.First() == "YetAnotherName".ToTableAlias());
+
+            indexDefinition.SortOrder.ShouldBe(SortOrder.Desc);
+        }
 
         [Fact]
         public void can_override_field_type_selection_on_the_attribute()
@@ -54,7 +63,6 @@ namespace Marten.Testing.Schema
                 _.Schema.For<Organization>().Duplicate(x => x.Time2, pgType: "timestamp");
             });
 
-
             store.Storage.MappingFor(typeof(Organization)).As<DocumentMapping>().DuplicatedFields.Single(x => x.MemberName == "Time2")
                 .PgType.ShouldBe("timestamp");
         }
@@ -66,10 +74,13 @@ namespace Marten.Testing.Schema
 
             [DuplicateField]
             public string Name { get; set; }
-
+            
             [DuplicateField(IndexMethod = IndexMethod.hash, IndexName = "idx_foo")]
             public string OtherName;
 
+            [DuplicateField(IndexSortOrder = SortOrder.Desc)]
+            public string YetAnotherName { get; set; }
+            
             [DuplicateField(PgType = "timestamp")]
             public DateTime Time { get; set; }
 

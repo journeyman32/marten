@@ -1,22 +1,48 @@
-﻿using System.Reflection;
+using System.Linq;
+using System.Reflection;
 using Baseline;
+using Marten.Schema.Indexing.Unique;
 using Marten.Storage;
 using Marten.Util;
 
 namespace Marten.Schema
 {
-    public class ComputedIndex : IIndexDefinition
+    public class ComputedIndex: IIndexDefinition
     {
-        private readonly MemberInfo[] _members;
-        private readonly string _locator;
+        private readonly MemberInfo[][] _members;
+        private string _locator;
         private readonly DbObjectName _table;
         private string _indexName;
 
-        public ComputedIndex(DocumentMapping mapping, MemberInfo[] members)
+        public ComputedIndex(DocumentMapping mapping, MemberInfo[] memberPath)
+            : this(mapping, new[] { memberPath })
+        {
+        }
+
+        public ComputedIndex(DocumentMapping mapping, MemberInfo[][] members)
         {
             _members = members;
-            var field = mapping.FieldFor(members);
-            _locator = field.SqlLocator.Replace("d.", "");
+
+            var mebersLocator = members
+                    .Select(m =>
+                    {
+                        var sql = mapping.FieldFor(m).SqlLocator.Replace("d.", "");
+                        switch (Casing)
+                        {
+                            case Casings.Upper:
+                                return $" upper({sql})";
+
+                            case Casings.Lower:
+                                return $" lower({sql})";
+
+                            default:
+                                return $" ({sql})";
+                        }
+                    })
+                    .Join(",");
+
+            _locator = $" {mebersLocator}";
+
             _table = mapping.Table;
         }
 
@@ -39,7 +65,7 @@ namespace Marten.Schema
             {
                 if (_indexName.IsNotEmpty())
                 {
-                    return DocumentMapping.MartenPrefix + _indexName;
+                    return DocumentMapping.MartenPrefix + _indexName.ToLowerInvariant();
                 }
 
                 return GenerateIndexName();
@@ -62,6 +88,16 @@ namespace Marten.Schema
         /// </summary>
         public IndexMethod Method { get; set; } = IndexMethod.btree;
 
+        /// <summary>
+        /// Specifies the sort order of the index (only applicable to B-tree indexes)
+        /// </summary>
+        public SortOrder SortOrder { get; set; } = SortOrder.Asc;
+
+        /// <summary>
+        /// Specifies the unique index is scoped to the tenant
+        /// </summary>
+        public TenancyScope TenancyScope { get; set; }
+
         public string ToDDL()
         {
             var index = IsUnique ? "CREATE UNIQUE INDEX" : "CREATE INDEX";
@@ -72,10 +108,15 @@ namespace Marten.Schema
             }
 
             index += $" {IndexName} ON {_table.QualifiedName}";
-            
+
             if (Method != IndexMethod.btree)
             {
                 index += $" USING {Method}";
+            }
+
+            if (TenancyScope == TenancyScope.PerTenant)
+            {
+                _locator = $"{_locator}, tenant_id";
             }
 
             switch (Casing)
@@ -83,12 +124,21 @@ namespace Marten.Schema
                 case Casings.Upper:
                     index += $" (upper({_locator}))";
                     break;
+
                 case Casings.Lower:
                     index += $" (lower({_locator}))";
                     break;
+
                 default:
-                    index += $" (({_locator}))";
+                    index += $" ({_locator})";
                     break;
+            }
+
+            // Only the B-tree index type supports modifying the sort order, and ascending is the default
+            if (Method == IndexMethod.btree && SortOrder == SortOrder.Desc)
+            {
+                index = index.Remove(index.Length - 1);
+                index += " DESC)";
             }
 
             if (Where.IsNotEmpty())
@@ -105,7 +155,10 @@ namespace Marten.Schema
 
             name += IsUnique ? "_uidx_" : "_idx_";
 
-            name += _members.ToTableAlias();
+            foreach (var member in _members)
+            {
+                name += member.ToTableAlias();
+            }
 
             return name;
         }
@@ -121,10 +174,12 @@ namespace Marten.Schema
             /// Leave the casing as is (default)
             /// </summary>
             Default,
+
             /// <summary>
             /// Change the casing to uppercase
             /// </summary>
             Upper,
+
             /// <summary>
             /// Change the casing to lowercase
             /// </summary>

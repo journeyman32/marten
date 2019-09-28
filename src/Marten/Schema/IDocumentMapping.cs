@@ -8,6 +8,8 @@ namespace Marten.Schema
 {
     public interface IDocumentMapping
     {
+        IDocumentMapping Root { get; }
+
         Type DocumentType { get; }
 
         IDocumentStorage BuildStorage(StoreOptions options);
@@ -30,7 +32,6 @@ namespace Marten.Schema
         {
             var visitor = new FindMembers();
             visitor.Visit(expression);
-
 
             var field = mapping.FieldFor(visitor.Members);
 

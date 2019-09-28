@@ -1,7 +1,6 @@
-﻿using System.Reflection;
-using System.Runtime.CompilerServices;
+using System.Reflection;
 using System.Runtime.InteropServices;
-using BenchmarkDotNet.Attributes.Exporters;
+using BenchmarkDotNet.Attributes;
 
 // General Information about an assembly is controlled through the following
 // set of attributes. Change these attribute values to modify the information
@@ -18,6 +17,4 @@ using BenchmarkDotNet.Attributes.Exporters;
 
 // The following GUID is for the ID of the typelib if this project is exposed to COM
 [assembly: Guid("b52871d7-1ccd-4667-81d4-4b0f5d72fc63")]
-
-
 [assembly: MarkdownExporter]

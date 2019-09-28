@@ -3,8 +3,8 @@ using System.Linq;
 using System.Linq.Expressions;
 using System.Threading;
 using System.Threading.Tasks;
-using FastExpressionCompiler;
 using Marten.Schema;
+using Marten.Util;
 
 namespace Marten.Events.Projections
 {
@@ -12,7 +12,7 @@ namespace Marten.Events.Projections
     /// Simple aggregation finder that looks for an aggregate document based on the stream key
     /// </summary>
     /// <typeparam name="T"></typeparam>
-    public class StringIdentifiedAggregateFinder<T> : IAggregationFinder<T> where T : class, new()
+    public class StringIdentifiedAggregateFinder<T>: IAggregationFinder<T> where T : class, new()
     {
         private readonly Action<T, string> _setId;
 

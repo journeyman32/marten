@@ -1,7 +1,6 @@
-﻿using System;
+using System;
 using System.Linq;
 using System.Linq.Expressions;
-using System.Reflection;
 using Baseline;
 using Marten.Schema;
 using Marten.Util;
@@ -9,7 +8,7 @@ using NpgsqlTypes;
 
 namespace Marten.Linq.Parsing
 {
-    public class IsNotOneOf : IMethodCallParser
+    public class IsNotOneOf: IMethodCallParser
     {
         public bool Matches(MethodCallExpression expression)
         {
@@ -24,7 +23,7 @@ namespace Marten.Linq.Parsing
             var locator = mapping.FieldFor(members).SqlLocator;
             var values = expression.Arguments.Last().Value();
 
-            if (members.Last().GetMemberType().GetTypeInfo().IsEnum)
+            if (members.Last().GetMemberType().IsEnum)
             {
                 return new EnumIsNotOneOfWhereFragment(values, serializer.EnumStorage, locator);
             }
@@ -33,7 +32,7 @@ namespace Marten.Linq.Parsing
         }
     }
 
-    public class EnumIsNotOneOfWhereFragment : IWhereFragment
+    public class EnumIsNotOneOfWhereFragment: IWhereFragment
     {
         private readonly object _values;
         private readonly string _locator;

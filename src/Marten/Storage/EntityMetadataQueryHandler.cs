@@ -12,7 +12,7 @@ using Marten.Util;
 
 namespace Marten.Storage
 {
-    public class EntityMetadataQueryHandler : IQueryHandler<DocumentMetadata>
+    public class EntityMetadataQueryHandler: IQueryHandler<DocumentMetadata>
     {
         private readonly Dictionary<string, int> _fields;
         private readonly object _id;
@@ -32,8 +32,6 @@ namespace Marten.Storage
                 {DocumentMapping.LastModifiedColumn, fieldIndex++},
                 {DocumentMapping.DotNetTypeColumn, fieldIndex++}
             };
-
-
 
             var queryableDocument = _mapping.ToQueryableDocument();
             if (queryableDocument.SelectFields().Contains(DocumentMapping.DocumentTypeColumn))
@@ -64,7 +62,7 @@ namespace Marten.Storage
             }
 
             sql.Append(" from ");
-            sql.Append((string) _mapping.Table.QualifiedName);
+            sql.Append((string)_mapping.Table.QualifiedName);
             sql.Append(" where id = :id");
 
             sql.AddNamedParameter("id", _id);
@@ -74,18 +72,21 @@ namespace Marten.Storage
 
         public DocumentMetadata Handle(DbDataReader reader, IIdentityMap map, QueryStatistics stats)
         {
-            if (!reader.Read()) return null;
+            if (!reader.Read())
+                return null;
 
             var version = reader.GetFieldValue<Guid>(0);
-            var timestamp = reader.GetFieldValue<DateTime>(1);
+            var timestamp = reader.GetValue(1).MapToDateTime();
             var dotNetType = reader.GetFieldValue<string>(2);
             var docType = GetOptionalFieldValue<string>(reader, DocumentMapping.DocumentTypeColumn);
             var deleted = GetOptionalFieldValue<bool>(reader, DocumentMapping.DeletedColumn);
-            var deletedAt = GetOptionalFieldValue<DateTime>(reader, DocumentMapping.DeletedAtColumn, null);
+            var deletedAt = GetOptionalFieldValue<object>(reader, DocumentMapping.DeletedAtColumn);
             var tenantId = GetOptionalFieldValue<string>(reader, TenantIdColumn.Name);
 
-            var metadata = new DocumentMetadata(timestamp, version, dotNetType, docType, deleted, deletedAt);
-            metadata.TenantId = tenantId ?? Tenancy.DefaultTenantId;
+            var metadata = new DocumentMetadata(timestamp, version, dotNetType, docType, deleted, deletedAt?.MapToDateTime())
+            {
+                TenantId = tenantId ?? Tenancy.DefaultTenantId
+            };
 
             return metadata;
         }
@@ -94,22 +95,21 @@ namespace Marten.Storage
             CancellationToken token)
         {
             var hasAny = await reader.ReadAsync(token).ConfigureAwait(false);
-            if (!hasAny) return null;
+            if (!hasAny)
+                return null;
 
             var version = await reader.GetFieldValueAsync<Guid>(0, token).ConfigureAwait(false);
-            var timestamp = await reader.GetFieldValueAsync<DateTime>(1, token).ConfigureAwait(false);
+            var timestamp = await reader.GetFieldValueAsync<object>(1, token).ConfigureAwait(false);
             var dotNetType = await reader.GetFieldValueAsync<string>(2, token).ConfigureAwait(false);
             var docType = await GetOptionalFieldValueAsync<string>(reader, DocumentMapping.DocumentTypeColumn, token)
                 .ConfigureAwait(false);
             var deleted = await GetOptionalFieldValueAsync<bool>(reader, DocumentMapping.DeletedColumn, token)
                 .ConfigureAwait(false);
             var deletedAt =
-                await GetOptionalFieldValueAsync<DateTime>(reader, DocumentMapping.DeletedAtColumn, null, token)
+                await GetOptionalFieldValueAsync<object>(reader, DocumentMapping.DeletedAtColumn, token)
                     .ConfigureAwait(false);
 
-
-
-            var metadata = new DocumentMetadata(timestamp, version, dotNetType, docType, deleted, deletedAt);
+            var metadata = new DocumentMetadata(timestamp.MapToDateTime(), version, dotNetType, docType, deleted, deletedAt?.MapToDateTime());
             if (_mapping.TenancyStyle == TenancyStyle.Conjoined)
             {
                 metadata.TenantId = await GetOptionalFieldValueAsync<string>(reader, TenantIdColumn.Name, token)
@@ -121,16 +121,14 @@ namespace Marten.Storage
 
         private T GetOptionalFieldValue<T>(DbDataReader reader, string fieldName)
         {
-            int ordinal;
-            if (_fields.TryGetValue(fieldName, out ordinal) && !reader.IsDBNull(ordinal))
+            if (_fields.TryGetValue(fieldName, out int ordinal) && !reader.IsDBNull(ordinal))
                 return reader.GetFieldValue<T>(ordinal);
-            return default(T);
+            return default;
         }
 
         private T? GetOptionalFieldValue<T>(DbDataReader reader, string fieldName, T? defaultValue) where T : struct
         {
-            int ordinal;
-            if (_fields.TryGetValue(fieldName, out ordinal) && !reader.IsDBNull(ordinal))
+            if (_fields.TryGetValue(fieldName, out int ordinal) && !reader.IsDBNull(ordinal))
                 return reader.GetFieldValue<T>(ordinal);
             return defaultValue;
         }
@@ -138,18 +136,16 @@ namespace Marten.Storage
         private async Task<T> GetOptionalFieldValueAsync<T>(DbDataReader reader, string fieldName,
             CancellationToken token)
         {
-            int ordinal;
-            if (_fields.TryGetValue(fieldName, out ordinal) &&
+            if (_fields.TryGetValue(fieldName, out int ordinal) &&
                 !await reader.IsDBNullAsync(ordinal, token).ConfigureAwait(false))
                 return await reader.GetFieldValueAsync<T>(ordinal, token).ConfigureAwait(false);
-            return default(T);
+            return default;
         }
 
         private async Task<T?> GetOptionalFieldValueAsync<T>(DbDataReader reader, string fieldName, T? defaultValue,
             CancellationToken token) where T : struct
         {
-            int ordinal;
-            if (_fields.TryGetValue(fieldName, out ordinal) &&
+            if (_fields.TryGetValue(fieldName, out int ordinal) &&
                 !await reader.IsDBNullAsync(ordinal, token).ConfigureAwait(false))
                 return await reader.GetFieldValueAsync<T>(ordinal, token).ConfigureAwait(false);
             return defaultValue;

@@ -1,5 +1,6 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using Marten.Events.Projections;
 using Marten.Services;
 using Shouldly;
@@ -7,22 +8,22 @@ using Xunit;
 
 namespace Marten.Testing.Events.Projections
 {
-    public class project_events_from_multiple_streams_into_view : DocumentSessionFixture<IdentityMap>
+    public class project_events_from_multiple_streams_into_view: DocumentSessionFixture<IdentityMap>
     {
-        static readonly Guid streamId = Guid.NewGuid();
-        static readonly Guid streamId2 = Guid.NewGuid();
+        private static readonly Guid streamId = Guid.NewGuid();
+        private static readonly Guid streamId2 = Guid.NewGuid();
 
-        QuestStarted started = new QuestStarted { Id = streamId, Name = "Find the Orb" };
-        QuestStarted started2 = new QuestStarted { Id = streamId2, Name = "Find the Orb 2.0" };
-        MonsterQuestsAdded monsterQuestsAdded = new MonsterQuestsAdded { QuestIds = new List<Guid> { streamId, streamId2 }, Name = "Dragon" };
-        MonsterQuestsRemoved monsterQuestsRemoved = new MonsterQuestsRemoved { QuestIds = new List<Guid> { streamId, streamId2 }, Name = "Dragon" };
-        QuestEnded ended = new QuestEnded { Id = streamId, Name = "Find the Orb" };
-        MembersJoined joined = new MembersJoined { QuestId = streamId, Day = 2, Location = "Faldor's Farm", Members = new[] { "Garion", "Polgara", "Belgarath" } };
-        MonsterSlayed slayed1 = new MonsterSlayed { QuestId = streamId, Name = "Troll" };
-        MonsterSlayed slayed2 = new MonsterSlayed { QuestId = streamId, Name = "Dragon" };
-        MonsterDestroyed destroyed = new MonsterDestroyed { QuestId = streamId, Name = "Troll" };
-        MembersDeparted departed = new MembersDeparted { QuestId = streamId, Day = 5, Location = "Sendaria", Members = new[] { "Silk", "Barak" } };
-        MembersJoined joined2 = new MembersJoined { QuestId = streamId, Day = 5, Location = "Sendaria", Members = new[] { "Silk", "Barak" } };
+        private QuestStarted started = new QuestStarted { Id = streamId, Name = "Find the Orb" };
+        private QuestStarted started2 = new QuestStarted { Id = streamId2, Name = "Find the Orb 2.0" };
+        private MonsterQuestsAdded monsterQuestsAdded = new MonsterQuestsAdded { QuestIds = new List<Guid> { streamId, streamId2 }, Name = "Dragon" };
+        private MonsterQuestsRemoved monsterQuestsRemoved = new MonsterQuestsRemoved { QuestIds = new List<Guid> { streamId, streamId2 }, Name = "Dragon" };
+        private QuestEnded ended = new QuestEnded { Id = streamId, Name = "Find the Orb" };
+        private MembersJoined joined = new MembersJoined { QuestId = streamId, Day = 2, Location = "Faldor's Farm", Members = new[] { "Garion", "Polgara", "Belgarath" } };
+        private MonsterSlayed slayed1 = new MonsterSlayed { QuestId = streamId, Name = "Troll" };
+        private MonsterSlayed slayed2 = new MonsterSlayed { QuestId = streamId, Name = "Dragon" };
+        private MonsterDestroyed destroyed = new MonsterDestroyed { QuestId = streamId, Name = "Troll" };
+        private MembersDeparted departed = new MembersDeparted { QuestId = streamId, Day = 5, Location = "Sendaria", Members = new[] { "Silk", "Barak" } };
+        private MembersJoined joined2 = new MembersJoined { QuestId = streamId, Day = 5, Location = "Sendaria", Members = new[] { "Silk", "Barak" } };
 
         [Fact]
         public void from_configuration()
@@ -30,11 +31,12 @@ namespace Marten.Testing.Events.Projections
             StoreOptions(_ =>
             {
                 _.AutoCreateSchemaObjects = AutoCreate.All;
+                _.Events.TenancyStyle = Marten.Storage.TenancyStyle.Conjoined;
                 _.Events.InlineProjections.AggregateStreamsWith<QuestParty>();
                 _.Events.ProjectView<PersistedView, Guid>()
-                    .ProjectEvent<QuestStarted>((view, @event) => view.Events.Add(@event))
+                    .ProjectEvent<ProjectionEvent<QuestStarted>>((view, @event) => { view.Events.Add(@event.Data); view.StreamIdsForEvents.Add(@event.StreamId); })
                     .ProjectEvent<MembersJoined>(e => e.QuestId, (view, @event) => view.Events.Add(@event))
-                    .ProjectEvent<MonsterSlayed>(e => e.QuestId, (view, @event) => view.Events.Add(@event))
+                    .ProjectEvent<ProjectionEvent<MonsterSlayed>>(e => e.Data.QuestId, (view, @event) => { view.Events.Add(@event.Data); view.StreamIdsForEvents.Add(@event.StreamId); })
                     .DeleteEvent<QuestEnded>()
                     .DeleteEvent<MembersDeparted>(e => e.QuestId)
                     .DeleteEvent<MonsterDestroyed>((session, e) => session.Load<QuestParty>(e.QuestId).Id);
@@ -79,25 +81,40 @@ namespace Marten.Testing.Events.Projections
             theSession.SaveChanges();
             var nullDocument3 = theSession.Load<PersistedView>(streamId);
             nullDocument3.ShouldBeNull();
+
+            // Add document back to see if we can project stream ids from event handlers (Applies to other IEvent properties)
+            theSession.Events.Append(streamId, started, joined);
+            var monsterId = Guid.NewGuid();
+            theSession.Events.StartStream(monsterId, slayed1);
+            theSession.SaveChanges();
+            var document4 = theSession.Load<PersistedView>(streamId);
+            document4.StreamIdsForEvents.Count.ShouldBe(2); // Ids of the two streams
+            document4.StreamIdsForEvents.Contains(streamId).ShouldBeTrue();
+            document4.StreamIdsForEvents.Contains(monsterId).ShouldBeTrue();
+
+            theSession.Events.Append(streamId, ended);
+            theSession.SaveChanges();
+            var nullDocument4 = theSession.Load<PersistedView>(streamId);
+            nullDocument4.ShouldBeNull();
         }
 
         [Fact]
         public async void from_configuration_async()
         {
-            // SAMPLE: viewprojection-from-configuration 
+            // SAMPLE: viewprojection-from-configuration
             StoreOptions(_ =>
             {
                 _.AutoCreateSchemaObjects = AutoCreate.All;
                 _.Events.InlineProjections.AggregateStreamsWith<QuestParty>();
                 _.Events.ProjectView<PersistedView, Guid>()
-                    .ProjectEvent<QuestStarted>((view, @event) => { view.Events.Add(@event); })
+                    .ProjectEvent<ProjectionEvent<QuestStarted>>((view, @event) => { view.Events.Add(@event.Data); view.StreamIdsForEvents.Add(@event.StreamId); })
                     .ProjectEvent<MembersJoined>(e => e.QuestId, (view, @event) => { view.Events.Add(@event); })
-                    .ProjectEvent<ProjectionEvent<MonsterSlayed>>(e => e.Data.QuestId, (view, @event) => { view.Events.Add(@event.Data); })
+                    .ProjectEvent<ProjectionEvent<MonsterSlayed>>(e => e.Data.QuestId, (view, @event) => { view.Events.Add(@event.Data); view.StreamIdsForEvents.Add(@event.StreamId); })
                     .DeleteEvent<QuestEnded>()
                     .DeleteEvent<MembersDeparted>(e => e.QuestId)
                     .DeleteEvent<MonsterDestroyed>((session, e) => session.Load<QuestParty>(e.QuestId).Id);
             });
-            // ENDSAMPLE 
+            // ENDSAMPLE
 
             theSession.Events.StartStream<QuestParty>(streamId, started, joined);
             await theSession.SaveChangesAsync();
@@ -138,6 +155,21 @@ namespace Marten.Testing.Events.Projections
             await theSession.SaveChangesAsync();
             var nullDocument3 = theSession.Load<PersistedView>(streamId);
             nullDocument3.ShouldBeNull();
+
+            // Add document back to see if we can project stream ids from event handlers (Applies to other IEvent properties)
+            theSession.Events.Append(streamId, started, joined);
+            var monsterId = Guid.NewGuid();
+            theSession.Events.StartStream(monsterId, slayed1);
+            await theSession.SaveChangesAsync();
+            var document4 = theSession.Load<PersistedView>(streamId);
+            document4.StreamIdsForEvents.Count.ShouldBe(2); // Ids of the two streams
+            document4.StreamIdsForEvents.Contains(streamId).ShouldBeTrue();
+            document4.StreamIdsForEvents.Contains(monsterId).ShouldBeTrue();
+
+            theSession.Events.Append(streamId, ended);
+            await theSession.SaveChangesAsync();
+            var nullDocument4 = theSession.Load<PersistedView>(streamId);
+            nullDocument4.ShouldBeNull();
         }
 
         [Fact]
@@ -309,6 +341,65 @@ namespace Marten.Testing.Events.Projections
             var nullDocument2 = theSession.Load<QuestView>(streamId2);
             nullDocument2.ShouldBeNull();
         }
+
+        [Fact]
+        public async Task updateonly_event_should_not_create_new_document()
+        {
+            StoreOptions(_ =>
+            {
+                _.AutoCreateSchemaObjects = AutoCreate.All;
+                _.Events.TenancyStyle = Marten.Storage.TenancyStyle.Conjoined;
+                _.Events.ProjectView<PersistedView, Guid>()
+                    .ProjectEvent<QuestStarted>((view, @event) => view.Events.Add(@event))
+                    .ProjectEvent<MembersJoined>(e => e.QuestId, (view, @event) => view.Events.Add(@event))
+                    .ProjectEvent<MonsterSlayed>(e =>
+                    {
+                        return Guid.NewGuid();
+                    }, (view, @event) => view.Events.Add(@event), onlyUpdate: true);
+            });
+
+            theSession.Events.StartStream<QuestParty>(streamId, started);
+            theSession.SaveChanges();
+
+            var document = await theSession.LoadAsync<PersistedView>(streamId);
+            document.Events.Count.ShouldBe(1);
+
+            theSession.Events.StartStream<Monster>(slayed1);
+            theSession.SaveChanges();
+
+            var document2 = await theSession.LoadAsync<PersistedView>(streamId);
+            document2.Events.Count.ShouldBe(1);
+
+            theSession.Events.StartStream<QuestParty>(joined);
+            theSession.SaveChanges();
+
+            var document3 = await theSession.LoadAsync<PersistedView>(streamId);
+            document3.Events.Count.ShouldBe(2);
+        }
+
+        [Fact]
+        public async Task default_id_event_should_not_create_new_document()
+        {
+            StoreOptions(_ =>
+            {
+                _.AutoCreateSchemaObjects = AutoCreate.All;
+                _.Events.TenancyStyle = Marten.Storage.TenancyStyle.Conjoined;
+                _.Events.ProjectView<PersistedView, Guid>()
+                    .ProjectEvent<QuestStarted>(e =>
+                    {
+                        return Guid.Empty;
+                    }, (view, @event) => view.Events.Add(@event));
+            });
+
+            theSession.Events.StartStream<QuestParty>(streamId, started);
+            theSession.SaveChanges();
+
+            var document = await theSession.LoadAsync<PersistedView>(streamId);
+            document.ShouldBeNull();
+
+            var documentCount = await theSession.Query<PersistedView>().CountAsync();
+            documentCount.ShouldBe(0);
+        }
     }
 
     public class QuestView
@@ -321,10 +412,11 @@ namespace Marten.Testing.Events.Projections
     {
         public Guid Id { get; set; }
         public List<object> Events { get; } = new List<object>();
+        public List<Guid> StreamIdsForEvents { get; set; } = new List<Guid>();
     }
 
-    // SAMPLE: viewprojection-from-class 
-    public class PersistViewProjection : ViewProjection<PersistedView, Guid>
+    // SAMPLE: viewprojection-from-class
+    public class PersistViewProjection: ViewProjection<PersistedView, Guid>
     {
         public PersistViewProjection()
         {
@@ -341,5 +433,48 @@ namespace Marten.Testing.Events.Projections
             view.Events.Add(@event);
         }
     }
-    // ENDSAMPLE 
+
+    // ENDSAMPLE
+
+    // SAMPLE: viewprojection-from-class-with-eventdata
+
+    public class Lap
+    {
+        public Guid Id { get; set; }
+
+        public DateTimeOffset? Start { get; set; }
+
+        public DateTimeOffset? End { get; set; }
+    }
+
+    public class LapStarted
+    {
+        public Guid LapId { get; set; }
+    }
+
+    public class LapFinished
+    {
+        public Guid LapId { get; set; }
+    }
+
+    public class LapViewProjection: ViewProjection<Lap, Guid>
+    {
+        public LapViewProjection()
+        {
+            ProjectEvent<ProjectionEvent<LapStarted>>(e => e.Data.LapId, Persist);
+            ProjectEvent<ProjectionEvent<LapFinished>>(e => e.Data.LapId, Persist);
+        }
+
+        private void Persist(Lap view, ProjectionEvent<LapStarted> eventData)
+        {
+            view.Start = eventData.Timestamp;
+        }
+
+        private void Persist(Lap view, ProjectionEvent<LapFinished> eventData)
+        {
+            view.End = eventData.Timestamp;
+        }
+    }
+
+    // ENDSAMPLE
 }

@@ -1,12 +1,13 @@
-﻿using System;
+using System;
 using System.Linq;
 using Baseline;
 using Marten.Testing.Documents;
+using Shouldly;
 using Xunit;
 
 namespace Marten.Testing.Bugs
 {
-    public class Bug_443_erroneously_creating_the_event_tables_when_unnecessary : IntegratedFixture
+    public class Bug_443_erroneously_creating_the_event_tables_when_unnecessary: IntegratedFixture
     {
         [Fact]
         public void event_table_should_not_be_there_if_unused()
@@ -45,14 +46,12 @@ namespace Marten.Testing.Bugs
             var directory = AppContext.BaseDirectory.AppendPath("sql");
             var fileSystem = new FileSystem();
             fileSystem.CleanDirectory(directory);
-            
+
             theStore.Schema.WriteDDLByType(directory);
 
             fileSystem.FindFiles(directory, FileSet.Shallow("*.sql"))
                 .Any(x => x.EndsWith("mt_streams.sql"))
                 .ShouldBeFalse();
-
-            
         }
     }
 }

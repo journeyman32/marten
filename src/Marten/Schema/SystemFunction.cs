@@ -1,9 +1,9 @@
-﻿using System.IO;
+using System.IO;
 using Marten.Storage;
 
 namespace Marten.Schema
 {
-    public class SystemFunction : Function
+    public class SystemFunction: Function
     {
         private readonly string _args;
         private readonly string _dropSql;
@@ -19,7 +19,7 @@ namespace Marten.Schema
         {
             _args = args;
             _function = new DbObjectName(schema, functionName);
-            _dropSql = $"drop function if exists {schema}.{functionName}({args}) cascade";
+            _dropSql = $"drop function if exists {schema}.{functionName}({args}) cascade;";
 
             Name = functionName;
         }
@@ -29,7 +29,6 @@ namespace Marten.Schema
         public override void Write(DdlRules rules, StringWriter writer)
         {
             var body = SchemaBuilder.GetSqlScript(Identifier.Schema, Identifier.Name);
-
 
             writer.WriteLine(body);
             writer.WriteLine("");

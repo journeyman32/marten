@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Threading.Tasks;
 
 namespace Marten.Events.Projections.Async.ErrorHandling
@@ -8,7 +8,7 @@ namespace Marten.Events.Projections.Async.ErrorHandling
         Task TryAction(Func<Task> action, IMonitoredActivity activity, int attempts = 0);
     }
 
-    public class DaemonErrorHandler : IDaemonErrorHandler
+    public class DaemonErrorHandler: IDaemonErrorHandler
     {
         private readonly IDaemon _daemon;
         private readonly IDaemonLogger _logger;
@@ -20,7 +20,6 @@ namespace Marten.Events.Projections.Async.ErrorHandling
             _logger = logger;
             _handling = handling;
         }
-
 
         public async Task TryAction(Func<Task> action, IMonitoredActivity activity, int attempts = 0)
         {
@@ -53,7 +52,6 @@ namespace Marten.Events.Projections.Async.ErrorHandling
                         await stopAll().ConfigureAwait(false);
                         break;
                 }
-
             }
         }
 
@@ -82,27 +80,31 @@ namespace Marten.Events.Projections.Async.ErrorHandling
             }
         }
 
-        private async Task pause(IMonitoredActivity activity)
+        private Task pause(IMonitoredActivity activity)
         {
             try
             {
-                await activity.Stop().ConfigureAwait(false);
+                activity.Stop().ConfigureAwait(false);
             }
             catch (Exception e)
             {
                 _logger.Error(e);
             }
 
-            await Task.Delay(_handling.Cooldown).ConfigureAwait(false);
+            Task.Run(async () =>
+            {
+                await Task.Delay(_handling.Cooldown);
+                try
+                {
+                    await activity.Start().ConfigureAwait(false);
+                }
+                catch (Exception e)
+                {
+                    _logger.Error(e);
+                }
+            });
 
-            try
-            {
-                await activity.Start().ConfigureAwait(false);
-            }
-            catch (Exception e)
-            {
-                _logger.Error(e);
-            }
+            return Task.CompletedTask;
         }
     }
 }

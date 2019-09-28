@@ -1,15 +1,14 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
-using System.Reflection;
-using Baseline;
-using Baseline.Reflection;
 using Marten.Linq;
 using Marten.Schema;
 using Marten.Schema.Identity;
 using Marten.Schema.Identity.Sequences;
+using Marten.Schema.Indexing.Unique;
 using Marten.Storage;
+using NpgsqlTypes;
 
 namespace Marten
 {
@@ -88,7 +87,7 @@ namespace Marten
             {
                 _parent = parent;
 
-                _parent.alter = options => options.Storage.MappingFor(typeof (T));
+                _parent.alter = options => options.Storage.MappingFor(typeof(T));
             }
 
             /// <summary>
@@ -99,7 +98,7 @@ namespace Marten
             /// <returns></returns>
             public DocumentMappingExpression<T> PropertySearching(PropertySearching searching)
             {
-                alter = m => m.PropertySearching = searching; 
+                alter = m => m.PropertySearching = searching;
                 return this;
             }
 
@@ -114,10 +113,10 @@ namespace Marten
             {
                 alter = m => m.Alias = alias;
                 return this;
-            }  
+            }
 
             /// <summary>
-            /// Marks a property or field on this document type as a searchable field that is also duplicated in the 
+            /// Marks a property or field on this document type as a searchable field that is also duplicated in the
             /// database document table
             /// </summary>
             /// <param name="expression"></param>
@@ -125,22 +124,26 @@ namespace Marten
             /// <param name="configure">Optional, allows you to customize the Postgresql database index configured for the duplicated field</param>
             /// <returns></returns>
             [Obsolete("Prefer Index() if you just want to optimize querying, or choose Duplicate() if you really want a duplicated field")]
-            public DocumentMappingExpression<T> Searchable(Expression<Func<T, object>> expression, string pgType = null, Action<IndexDefinition> configure = null)
+            public DocumentMappingExpression<T> Searchable(Expression<Func<T, object>> expression, string pgType = null, NpgsqlDbType? dbType = null, Action<IndexDefinition> configure = null)
             {
-                return Duplicate(expression, pgType, configure);
+                return Duplicate(expression, pgType, dbType, configure);
             }
 
             /// <summary>
-            /// Marks a property or field on this document type as a searchable field that is also duplicated in the 
+            /// Marks a property or field on this document type as a searchable field that is also duplicated in the
             /// database document table
             /// </summary>
             /// <param name="expression"></param>
             /// <param name="pgType">Optional, overrides the Postgresql column type for the duplicated field</param>
             /// <param name="configure">Optional, allows you to customize the Postgresql database index configured for the duplicated field</param>
+            /// <param name="dbType">Optional, overrides the Npgsql DbType for any parameter usage of this property</param>
             /// <returns></returns>
-            public DocumentMappingExpression<T> Duplicate(Expression<Func<T, object>> expression, string pgType = null, Action<IndexDefinition> configure = null)
+            public DocumentMappingExpression<T> Duplicate(Expression<Func<T, object>> expression, string pgType = null, NpgsqlDbType? dbType = null, Action<IndexDefinition> configure = null, bool notNull = false)
             {
-                alter = mapping => mapping.Duplicate(expression, pgType, configure);
+                alter = mapping =>
+                {
+                    mapping.Duplicate(expression, pgType, dbType, configure, notNull);
+                };
                 return this;
             }
 
@@ -158,6 +161,87 @@ namespace Marten
             }
 
             /// <summary>
+            /// Creates a computed index on this data member within the JSON data storage
+            /// </summary>
+            /// <param name="expressions"></param>
+            /// <param name="configure"></param>
+            /// <returns></returns>
+            public DocumentMappingExpression<T> Index(IReadOnlyCollection<Expression<Func<T, object>>> expressions, Action<ComputedIndex> configure = null)
+            {
+                alter = m => m.Index(expressions, configure);
+
+                return this;
+            }
+
+            /// <summary>
+            /// Creates a unique index on this data member within the JSON data storage
+            /// </summary>
+            /// <param name="expressions"></param>
+            /// <returns></returns>
+            public DocumentMappingExpression<T> UniqueIndex(params Expression<Func<T, object>>[] expressions)
+            {
+                alter = m => m.UniqueIndex(expressions);
+
+                return this;
+            }
+
+            /// <summary>
+            /// Creates a unique index on this data member within the JSON data storage
+            /// </summary>
+            /// <param name="indexName">Name of the index</param>
+            /// <param name="expressions"></param>
+            /// <returns></returns>
+            public DocumentMappingExpression<T> UniqueIndex(string indexName, params Expression<Func<T, object>>[] expressions)
+            {
+                alter = m => m.UniqueIndex(indexName, expressions);
+
+                return this;
+            }
+
+            /// <summary>
+            /// Creates a unique index on this data member within the JSON data storage
+            /// </summary>
+            /// <param name="indexType">Type of the index</param>
+            /// <param name="expressions"></param>
+            /// <returns></returns>
+            public DocumentMappingExpression<T> UniqueIndex(UniqueIndexType indexType, params Expression<Func<T, object>>[] expressions)
+            {
+                alter = m => m.UniqueIndex(indexType, expressions);
+
+                return this;
+            }
+
+            /// <summary>
+            /// Creates a unique index on this data member within the JSON data storage
+            /// </summary>
+            /// <param name="indexType">Type of the index</param>
+            /// <param name="indexName">Name of the index</param>
+            /// <param name="expressions"></param>
+            /// <returns></returns>
+            public DocumentMappingExpression<T> UniqueIndex(UniqueIndexType indexType, string indexName, params Expression<Func<T, object>>[] expressions)
+            {
+                alter = m => m.UniqueIndex(indexType, indexName, expressions);
+
+                return this;
+            }
+
+            /// <summary>
+            /// Creates a unique index on this data member within the JSON data storage
+            /// </summary>
+            /// <param name="indexType">Type of the index</param>
+            /// <param name="indexTenancyStyle">Style of tenancy</param>
+            /// <param name="indexName">Name of the index</param>
+            /// <param name="tenancyScope">Whether the unique index applies on a per tenant basis</param>
+            /// <param name="expressions"></param>
+            /// <returns></returns>
+            public DocumentMappingExpression<T> UniqueIndex(UniqueIndexType indexType, string indexName, TenancyScope tenancyScope = TenancyScope.Global, params Expression<Func<T, object>>[] expressions)
+            {
+                alter = m => m.UniqueIndex(indexType, indexName, tenancyScope, expressions);
+
+                return this;
+            }
+
+            /// <summary>
             /// Creates an index on the predefined Last Modified column
             /// </summary>
             /// <param name="configure"></param>
@@ -169,12 +253,50 @@ namespace Marten
                 return this;
             }
 
+            public DocumentMappingExpression<T> FullTextIndex(string regConfig = Schema.FullTextIndex.DefaultRegConfig, Action<FullTextIndex> configure = null)
+            {
+                alter = m => m.AddFullTextIndex(regConfig, configure);
+                return this;
+            }
+
+            public DocumentMappingExpression<T> FullTextIndex(Action<FullTextIndex> configure)
+            {
+                alter = m => m.AddFullTextIndex(Schema.FullTextIndex.DefaultRegConfig, configure);
+                return this;
+            }
+
+            public DocumentMappingExpression<T> FullTextIndex(params Expression<Func<T, object>>[] expressions)
+            {
+                FullTextIndex(Schema.FullTextIndex.DefaultRegConfig, expressions);
+                return this;
+            }
+
+            public DocumentMappingExpression<T> FullTextIndex(string regConfig, params Expression<Func<T, object>>[] expressions)
+            {
+                alter = m => m.FullTextIndex(regConfig, expressions);
+                return this;
+            }
+
+            public DocumentMappingExpression<T> FullTextIndex(Action<FullTextIndex> configure, params Expression<Func<T, object>>[] expressions)
+            {
+                alter = m => m.FullTextIndex(configure, expressions);
+                return this;
+            }
+
             public DocumentMappingExpression<T> ForeignKey<TReference>(
                 Expression<Func<T, object>> expression,
                 Action<ForeignKeyDefinition> foreignKeyConfiguration = null,
                 Action<IndexDefinition> indexConfiguration = null)
             {
                 alter = m => m.ForeignKey<TReference>(expression, foreignKeyConfiguration, indexConfiguration);
+
+                return this;
+            }
+
+            public DocumentMappingExpression<T> ForeignKey(Expression<Func<T, object>> expression, string schemaName, string tableName, string columnName,
+                                                           Action<ExternalForeignKeyDefinition> foreignKeyConfiguration = null)
+            {
+                alter = m => m.ForeignKey(expression, tableName, columnName, schemaName, foreignKeyConfiguration);
 
                 return this;
             }
@@ -231,12 +353,10 @@ namespace Marten
                 {
                     Action<StoreOptions> alteration = o =>
                     {
-                        value((DocumentMapping<T>) o.Storage.MappingFor(typeof (T)));
+                        value((DocumentMapping<T>)o.Storage.MappingFor(typeof(T)));
                     };
 
-
                     _parent.alter = alteration;
-                   
                 }
             }
 
@@ -273,7 +393,7 @@ namespace Marten
             /// <summary>
             /// Programmatically directs Marten to map all the subclasses of <cref name="T"/> to a hierarchy of types
             /// </summary>
-            /// <param name="allSubclassTypes">All the subclass types of <cref name="T"/> that you wish to map. 
+            /// <param name="allSubclassTypes">All the subclass types of <cref name="T"/> that you wish to map.
             /// You can use either params of <see cref="Type"/> or <see cref="MappedType"/> or a mix, since Type can implicitly convert to MappedType (without an alias)</param>
             /// <returns></returns>
             public DocumentMappingExpression<T> AddSubClassHierarchy(params MappedType[] allSubclassTypes)
@@ -292,7 +412,6 @@ namespace Marten
 
                 return this;
             }
-
 
             public DocumentMappingExpression<T> AddSubClass<TSubclass>(string alias = null) where TSubclass : T
             {
@@ -359,7 +478,6 @@ namespace Marten
                 return this;
             }
 
-
             public DocumentMappingExpression<T> VersionedWith(Expression<Func<T, Guid>> memberExpression)
             {
                 alter = m => m.VersionMember = FindMembers.Determine(memberExpression).Single();
@@ -375,10 +493,11 @@ namespace Marten
             Type = type;
             Alias = alias;
         }
+
         public Type Type { get; set; }
         public string Alias { get; set; }
 
-        public static implicit operator MappedType (Type type)
+        public static implicit operator MappedType(Type type)
         {
             return new MappedType(type);
         }

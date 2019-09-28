@@ -1,28 +1,30 @@
-﻿using System;
+using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Linq;
 using Baseline;
+using Marten.Schema.BulkLoading;
 using Marten.Services;
 using Marten.Util;
 using Npgsql;
 
 namespace Marten.Storage
 {
-    public class BulkInsertion : IDisposable
+    public class BulkInsertion: IDisposable
     {
         private readonly ITenant _tenant;
-        private readonly CharArrayTextWriter.IPool _writerPool;
+        private readonly MemoryPool<char> _writerPool;
 
-        public BulkInsertion(ITenant tenant, StoreOptions options, CharArrayTextWriter.IPool writerPool)
+        public BulkInsertion(ITenant tenant, StoreOptions options, MemoryPool<char> writerPool)
         {
             _tenant = tenant;
             _writerPool = writerPool;
             Serializer = options.Serializer();
         }
 
-        public ISerializer Serializer { get;}
+        public ISerializer Serializer { get; }
 
-        public void BulkInsert<T>(T[] documents, BulkInsertMode mode = BulkInsertMode.InsertsOnly, int batchSize = 1000)
+        public void BulkInsert<T>(IReadOnlyCollection<T> documents, BulkInsertMode mode = BulkInsertMode.InsertsOnly, int batchSize = 1000)
         {
             if (typeof(T) == typeof(object))
             {
@@ -80,13 +82,12 @@ namespace Marten.Storage
             }
         }
 
-
         internal interface IBulkInserter
         {
             void BulkInsert(int batchSize, NpgsqlConnection connection, BulkInsertion parent, BulkInsertMode mode);
         }
 
-        internal class BulkInserter<T> : IBulkInserter
+        internal class BulkInserter<T>: IBulkInserter
         {
             private readonly T[] _documents;
 
@@ -101,7 +102,7 @@ namespace Marten.Storage
             }
         }
 
-        private void bulkInsertDocuments<T>(T[] documents, int batchSize, NpgsqlConnection conn, BulkInsertMode mode)
+        private void bulkInsertDocuments<T>(IReadOnlyCollection<T> documents, int batchSize, NpgsqlConnection conn, BulkInsertMode mode)
         {
             var loader = _tenant.BulkLoaderFor<T>();
 
@@ -111,50 +112,30 @@ namespace Marten.Storage
                 conn.RunSql(sql);
             }
 
-            var writer = _writerPool.Lease();
-            try
+            using (var writer = new CharArrayTextWriter(_writerPool))
             {
-                if (documents.Length <= batchSize)
+                if (documents.Count <= batchSize)
                 {
-                    if (mode == BulkInsertMode.InsertsOnly)
-                    {
-                        loader.Load(_tenant, Serializer, conn, documents, writer);
-                    }
-                    else
-                    {
-                        loader.LoadIntoTempTable(_tenant, Serializer, conn, documents, writer);
-                    }
-
+                    loadDocuments(documents, loader, mode, conn, writer);
                 }
                 else
                 {
-                    var total = 0;
-                    var page = 0;
+                    var batch = new List<T>(batchSize);
 
-                    while (total < documents.Length)
+                    foreach (var document in documents)
                     {
-                        var batch = documents.Skip(page * batchSize).Take(batchSize).ToArray();
+                        batch.Add(document);
 
-                        if (mode == BulkInsertMode.InsertsOnly)
+                        if (batch.Count < batchSize)
                         {
-                            loader.Load(_tenant, Serializer, conn, batch, writer);
-                        }
-                        else
-                        {
-                            loader.LoadIntoTempTable(_tenant, Serializer, conn, batch, writer);
+                            continue;
                         }
 
-
-                        page++;
-                        total += batch.Length;
+                        loadDocuments(batch, loader, mode, conn, writer);
+                        batch.Clear();
                     }
-                }
-            }
-            finally
-            {
-                if (writer != null)
-                {
-                    _writerPool.Release(writer);
+
+                    loadDocuments(batch, loader, mode, conn, writer);
                 }
             }
 
@@ -170,6 +151,18 @@ namespace Marten.Storage
                 var copy = loader.CopyNewDocumentsFromTempTable();
 
                 conn.RunSql(overwrite, copy);
+            }
+        }
+
+        private void loadDocuments<T>(IEnumerable<T> documents, IBulkLoader<T> loader, BulkInsertMode mode, NpgsqlConnection conn, CharArrayTextWriter writer)
+        {
+            if (mode == BulkInsertMode.InsertsOnly)
+            {
+                loader.Load(_tenant, Serializer, conn, documents, writer);
+            }
+            else
+            {
+                loader.LoadIntoTempTable(_tenant, Serializer, conn, documents, writer);
             }
         }
 

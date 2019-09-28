@@ -1,24 +1,22 @@
 using System.Linq;
 using BenchmarkDotNet.Attributes;
-using BenchmarkDotNet.Attributes.Jobs;
 using Marten.Testing;
 
 namespace MartenBenchmarks
 {
     [SimpleJob(warmupCount: 2)]
-
+    [MemoryDiagnoser]
     public class BulkLoading
     {
         public static Target[] Docs = Target.GenerateRandomData(1000).ToArray();
 
-        [Setup]
+        [GlobalSetup]
         public void Setup()
         {
             BenchmarkStore.Store.Advanced.Clean.DeleteDocumentsFor(typeof(Target));
         }
 
         [Benchmark]
-        [MemoryDiagnoser]
         public void BulkInsertDocuments()
         {
             BenchmarkStore.Store.Advanced.Clean.DeleteDocumentsFor(typeof(Target));

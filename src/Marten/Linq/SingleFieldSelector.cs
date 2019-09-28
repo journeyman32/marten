@@ -1,4 +1,3 @@
-﻿using System;
 using System.Data.Common;
 using System.Reflection;
 using System.Threading;
@@ -8,7 +7,7 @@ using Marten.Services;
 
 namespace Marten.Linq
 {
-    public class SingleFieldSelector<T> : BasicSelector, ISelector<T>
+    public class SingleFieldSelector<T>: BasicSelector, ISelector<T>
     {
         public SingleFieldSelector(IQueryableDocument mapping, MemberInfo[] members)
             : base(mapping.FieldFor(members).SqlLocator)
@@ -26,8 +25,7 @@ namespace Marten.Linq
 
         public T Resolve(DbDataReader reader, IIdentityMap map, QueryStatistics stats)
         {
-            var raw = reader[0];
-            return raw == DBNull.Value ? default(T) : (T) raw;
+            return reader.IsDBNull(0) ? default : reader.GetFieldValue<T>(0);
         }
 
         public Task<T> ResolveAsync(DbDataReader reader, IIdentityMap map, QueryStatistics stats, CancellationToken token)

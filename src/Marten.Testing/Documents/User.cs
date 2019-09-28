@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using Baseline;
 
 namespace Marten.Testing.Documents
@@ -20,7 +20,7 @@ namespace Marten.Testing.Documents
         public bool Internal { get; set; }
 
         public string FullName => "{0} {1}".ToFormat(FirstName, LastName);
-        
+
         public int Age { get; set; }
 
         public string ToJson()
@@ -34,12 +34,12 @@ namespace Marten.Testing.Documents
         }
     }
 
-    public class SuperUser : User
+    public class SuperUser: User
     {
         public string Role { get; set; }
     }
 
-    public class AdminUser : User
+    public class AdminUser: User
     {
         public string Region { get; set; }
     }
@@ -62,14 +62,24 @@ namespace Marten.Testing.Documents
         public string UserName { get; set; }
     }
 
-    public class UserWithInterface : User, IUserWithInterface
+    public class UserWithInterface: User, IUserWithInterface
     {
-        
     }
 
     public interface IUserWithInterface
     {
         Guid Id { get; set; }
         string UserName { get; set; }
+    }
+
+    public class UserWithNicknames
+    {
+        public string[] Nicknames { get; set; }
+    }
+
+    public class Post
+    {
+        public Guid Id { get; set; }
+        public string[] Tags { get; set; }
     }
 }

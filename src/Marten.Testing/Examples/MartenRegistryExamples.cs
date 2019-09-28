@@ -1,4 +1,4 @@
-﻿using Marten.Schema;
+using Marten.Schema;
 using Marten.Testing.Documents;
 
 namespace Marten.Testing.Examples
@@ -25,20 +25,20 @@ namespace Marten.Testing.Examples
     }
 
     // SAMPLE: MyMartenRegistry
-    public class MyMartenRegistry : MartenRegistry
+    public class MyMartenRegistry: MartenRegistry
     {
         public MyMartenRegistry()
         {
             // I'm going to search for user by UserName
-            // pretty frequently, so I want that to be 
+            // pretty frequently, so I want that to be
             // a duplicated, searchable field
             For<User>().Duplicate(x => x.UserName);
-
 
             // Add a gin index to Company's json data storage
             For<Company>().GinIndexJsonData();
         }
     }
+
     // ENDSAMPLE
 
     // SAMPLE: using_attributes_on_document
@@ -52,11 +52,16 @@ namespace Marten.Testing.Examples
         // storage table
         [DuplicateField(PgType = "text")]
         public string Category;
+
+        // Defining a duplicate column with not null constraint
+        [DuplicateField(PgType = "text", NotNull = true)]
+        public string Department;
     }
+
     // ENDSAMPLE
 
     // SAMPLE: IndexExamples
-    public class IndexExamples : MartenRegistry
+    public class IndexExamples: MartenRegistry
     {
         public IndexExamples()
         {
@@ -68,15 +73,32 @@ namespace Marten.Testing.Examples
             // the Postgresql database type for the column
             For<User>().Duplicate(x => x.FirstName, pgType: "varchar(50)");
 
+            // Defining a duplicate column with not null constraint
+            For<User>().Duplicate(x => x.Department, pgType: "varchar(50)", notNull: true);
+
             // Customize the index on the duplicated field
-            // for FirstName 
-            For<User>().Duplicate(x => x.FirstName, configure:idx =>
+            // for FirstName
+            For<User>().Duplicate(x => x.FirstName, configure: idx =>
             {
                 idx.IndexName = "idx_special";
                 idx.Method = IndexMethod.hash;
             });
 
+            // Customize the index on the duplicated field
+            // for UserName to be unique
+            For<User>().Duplicate(x => x.UserName, configure: idx =>
+            {
+                idx.IsUnique = true;
+            });
+
+            // Customize the index on the duplicated field
+            // for LastName to be in descending order
+            For<User>().Duplicate(x => x.LastName, configure: idx =>
+            {
+                idx.SortOrder = SortOrder.Desc;
+            });
         }
     }
+
     // ENDSAMPLE
 }

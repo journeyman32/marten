@@ -1,12 +1,13 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
-using Marten.Storage;
 using Baseline;
+using Marten.Schema.Indexing.Unique;
+using Marten.Storage;
 
 namespace Marten.Schema
 {
-    public class IndexDefinition : IIndexDefinition
+    public class IndexDefinition: IIndexDefinition
     {
         private readonly DocumentMapping _parent;
         private readonly string[] _columns;
@@ -20,9 +21,13 @@ namespace Marten.Schema
 
         public IndexMethod Method { get; set; } = IndexMethod.btree;
 
+        public SortOrder SortOrder { get; set; } = SortOrder.Asc;
+
         public bool IsUnique { get; set; }
 
         public bool IsConcurrent { get; set; }
+
+        public TenancyScope TenancyScope { get; set; } = TenancyScope.Global;
 
         public string IndexName
         {
@@ -31,8 +36,8 @@ namespace Marten.Schema
                 if (_indexName.IsNotEmpty())
                 {
                     return _indexName.StartsWith(DocumentMapping.MartenPrefix)
-                        ? _indexName
-                        : DocumentMapping.MartenPrefix + _indexName;
+                        ? _indexName.ToLowerInvariant()
+                        : DocumentMapping.MartenPrefix + _indexName.ToLowerInvariant();
                 }
                 return $"{_parent.Table.Name}_idx_{_columns.Join("_")}";
             }
@@ -61,6 +66,18 @@ namespace Marten.Schema
             }
 
             var columns = _columns.Select(column => $"\"{column}\"").Join(", ");
+
+            if (TenancyScope == TenancyScope.PerTenant)
+            {
+                columns += ", tenant_id";
+            }
+
+            // Only the B-tree index type supports modifying the sort order, and ascending is the default
+            if (Method == IndexMethod.btree && SortOrder == SortOrder.Desc)
+            {
+                columns += " DESC";
+            }
+
             if (Expression.IsEmpty())
             {
                 index += $" ({columns})";
@@ -80,7 +97,8 @@ namespace Marten.Schema
 
         public bool Matches(ActualIndex index)
         {
-            if (!index.Name.EqualsIgnoreCase(IndexName)) return false;
+            if (!index.Name.EqualsIgnoreCase(IndexName))
+                return false;
 
             var actual = index.DDL;
             if (Method == IndexMethod.btree)
@@ -105,7 +123,7 @@ namespace Marten.Schema
                 var columns = match.Groups["columns"].Value;
                 _columns.Each(col =>
                 {
-                    columns = Regex.Replace(columns, $"({col})\\s?([\\w_]+)?", "\"$1\" $2");
+                    columns = Regex.Replace(columns, $"({col})\\s?([\\w_]+)?", "\"$1\"$2");
                 });
 
                 var replacement = Expression.IsEmpty() ?
@@ -121,6 +139,10 @@ namespace Marten.Schema
             }
 
             actual = actual.Replace("  ", " ") + ";";
+
+            // if column name being a PostgreSQL keyword, column is already wrapped with double quotes
+            // above regex and replace logic will result in additional double quotes, remove the same
+            actual = actual.Replace("\"\"", "\"");
 
             return ToDDL().EqualsIgnoreCase(actual);
         }

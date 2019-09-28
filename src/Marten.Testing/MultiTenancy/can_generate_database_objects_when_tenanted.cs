@@ -14,9 +14,12 @@ namespace Marten.Testing.MultiTenancy
         {
             var store = DocumentStore.For(_ =>
             {
+                _.DatabaseSchemaName = "multi2";
                 _.Connection(ConnectionSource.ConnectionString);
                 _.Policies.AllDocumentsAreMultiTenanted();
             });
+            
+            store.Advanced.Clean.CompletelyRemoveAll();
 
             store.Tenancy.Default.EnsureStorageExists(typeof(User));
         }
@@ -27,6 +30,7 @@ namespace Marten.Testing.MultiTenancy
             var guid = Guid.NewGuid();
             var store = DocumentStore.For(_ =>
             {
+                _.DatabaseSchemaName = "multi3";
                 _.Connection(ConnectionSource.ConnectionString);
                 _.Policies.AllDocumentsAreMultiTenanted();
                 _.Logger(new ConsoleMartenLogger());
@@ -77,6 +81,7 @@ namespace Marten.Testing.MultiTenancy
         {
             var store = DocumentStore.For(_ =>
             {
+                _.DatabaseSchemaName = "multitenancy";
                 _.Connection(ConnectionSource.ConnectionString);
                 _.Policies.AllDocumentsAreMultiTenanted();
             });

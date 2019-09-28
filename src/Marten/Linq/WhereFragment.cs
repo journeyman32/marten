@@ -1,17 +1,16 @@
-using Baseline;
-using Marten.Util;
-using Npgsql;
 using System;
 using System.Linq;
+using Baseline;
+using Marten.Util;
+using NpgsqlTypes;
 
 namespace Marten.Linq
 {
-    public class CustomizableWhereFragment : IWhereFragment
+    public class CustomizableWhereFragment: IWhereFragment
     {
         private readonly string _sql;
         private readonly Tuple<object, NpgsqlTypes.NpgsqlDbType?>[] _parameters;
         private readonly string _token;
-
 
         public CustomizableWhereFragment(string sql, string paramReplacementToken, params Tuple<object, NpgsqlTypes.NpgsqlDbType?>[] parameters)
         {
@@ -38,8 +37,10 @@ namespace Marten.Linq
         }
     }
 
-    public class WhereFragment : CustomizableWhereFragment
+    public class WhereFragment: CustomizableWhereFragment
     {
-        public WhereFragment(string sql, params object[] parameters) : base(sql, "?", parameters.Select(x => Tuple.Create<object, NpgsqlTypes.NpgsqlDbType?>(x, null)).ToArray()) { }
+        public WhereFragment(string sql, params object[] parameters) : base(sql, "?", parameters.Select(x => Tuple.Create<object, NpgsqlDbType?>(x, TypeMappings.TryGetDbType(x.GetType()))).ToArray())
+        {
+        }
     }
 }

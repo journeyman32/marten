@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using Baseline;
@@ -9,10 +9,10 @@ namespace Marten.Events
 {
     public class EventStream
     {
-
         public static IEvent ToEvent(object @event)
         {
-            if (@event == null) throw new ArgumentNullException(nameof(@event));
+            if (@event == null)
+                throw new ArgumentNullException(nameof(@event));
 
             return typeof(Event<>).CloseAndBuildAs<IEvent>(@event, @event.GetType());
         }
@@ -29,7 +29,7 @@ namespace Marten.Events
 
         public bool IsNew { get; }
 
-        public Type AggregateType { get; set; } 
+        public Type AggregateType { get; set; }
 
         private readonly IList<IEvent> _events = new List<IEvent>();
 
@@ -64,6 +64,8 @@ namespace Marten.Events
             return this;
         }
 
+        public object Identifier => (object)Key ?? Id;
+
         public IEnumerable<IEvent> Events => _events;
         internal int ExpectedVersionOnServer { get; set; }
 
@@ -75,7 +77,7 @@ namespace Marten.Events
         /// <returns></returns>
         public EventStream Add<T>(T @event)
         {
-            _events.Add(new Event<T>(@event) {Id = CombGuidIdGeneration.NewGuid() });
+            _events.Add(new Event<T>(@event) { Id = CombGuidIdGeneration.NewGuid() });
             return this;
         }
 
@@ -90,12 +92,12 @@ namespace Marten.Events
 
             if (ExpectedVersionOnServer > 0 && version != ExpectedVersionOnServer)
             {
-                throw new EventStreamUnexpectedMaxEventIdException(ExpectedVersionOnServer, version);
+                throw new EventStreamUnexpectedMaxEventIdException(Identifier, AggregateType, ExpectedVersionOnServer, version);
             }
 
             if (IsNew && version > _events.Count)
             {
-                throw new ExistingStreamIdCollisionException(Key ?? Id.ToString());
+                throw new ExistingStreamIdCollisionException(Identifier, AggregateType);
             }
         }
     }

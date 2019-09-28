@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Data.Common;
-using System.IO;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
@@ -19,48 +18,41 @@ using Remotion.Linq;
 
 namespace Marten.Events
 {
-    public abstract class EventMapping : IDocumentMapping, IQueryableDocument
+    public abstract class EventMapping: IDocumentMapping, IQueryableDocument
     {
-        private readonly StoreOptions _options;
         private readonly EventGraph _parent;
         protected readonly DocumentMapping _inner;
 
         protected EventMapping(EventGraph parent, Type eventType)
         {
-            _options = parent.Options;
             _parent = parent;
             DocumentType = eventType;
 
-            EventTypeName = Alias = DocumentType.Name.ToTableAlias();
+            EventTypeName = eventType.IsGenericType ? eventType.ShortNameInCode() : DocumentType.Name.ToTableAlias();
             IdMember = DocumentType.GetProperty(nameof(IEvent.Id));
 
             _inner = new DocumentMapping(eventType, parent.Options);
         }
 
+        public IDocumentMapping Root => this;
         public Type DocumentType { get; }
         public string EventTypeName { get; set; }
-        public string Alias { get; }
+        public string Alias => EventTypeName;
         public MemberInfo IdMember { get; }
         public NpgsqlDbType IdType { get; } = NpgsqlDbType.Uuid;
         public TenancyStyle TenancyStyle { get; } = TenancyStyle.Single;
 
         Type IDocumentMapping.IdType => typeof(Guid);
 
-        public DbObjectName Table =>  new DbObjectName(_options.Events.DatabaseSchemaName, "mt_events");
+        public DbObjectName Table => new DbObjectName(_parent.DatabaseSchemaName, "mt_events");
         public DuplicatedField[] DuplicatedFields { get; }
         public DeleteStyle DeleteStyle { get; }
-
-        public string DatabaseSchemaName
-        {
-            get { return _options.Events.DatabaseSchemaName; }
-            set { throw new NotSupportedException("The DatabaseSchemaName of Event can't be set."); }
-        }
 
         public PropertySearching PropertySearching { get; } = PropertySearching.JSON_Locator_Only;
 
         public string[] SelectFields()
         {
-            return new[] {"id", "data"};
+            return new[] { "id", "data" };
         }
 
         public IField FieldFor(IEnumerable<MemberInfo> members)
@@ -99,10 +91,9 @@ namespace Marten.Events
         {
             return _inner.JoinToInclude<TOther>(joinType, other, members, callback);
         }
-
     }
 
-    public class EventMapping<T> : EventMapping, IDocumentStorage<T> where T : class
+    public class EventMapping<T>: EventMapping, IDocumentStorage<T> where T : class
     {
         private readonly string _tableName;
 
@@ -193,13 +184,15 @@ namespace Marten.Events
 
         public T Resolve(IIdentityMap map, IQuerySession session, object id)
         {
-            if (map.Has<T>(id)) return map.Retrieve<T>(id);
+            if (map.Has<T>(id))
+                return map.Retrieve<T>(id);
 
             var cmd = LoaderCommand(id);
             cmd.Connection = session.Connection;
             using (var reader = cmd.ExecuteReader())
             {
-                if (!reader.Read()) return null;
+                if (!reader.Read())
+                    return null;
 
                 var json = reader.GetTextReader(0);
                 var doc = session.Serializer.FromJson<T>(json);
@@ -211,7 +204,8 @@ namespace Marten.Events
 
         public async Task<T> ResolveAsync(IIdentityMap map, IQuerySession session, CancellationToken token, object id)
         {
-            if (map.Has<T>(id)) return map.Retrieve<T>(id);
+            if (map.Has<T>(id))
+                return map.Retrieve<T>(id);
 
             var cmd = LoaderCommand(id);
             cmd.Connection = session.Connection;
@@ -220,7 +214,8 @@ namespace Marten.Events
             {
                 var found = await reader.ReadAsync(token).ConfigureAwait(false);
 
-                if (!found) return null;
+                if (!found)
+                    return null;
 
                 var json = reader.GetTextReader(0);
                 //var json = await reader.GetFieldValueAsync<string>(0, token).ConfigureAwait(false);
@@ -230,7 +225,5 @@ namespace Marten.Events
                 return doc;
             }
         }
-
-
     }
 }

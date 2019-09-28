@@ -1,58 +1,89 @@
-﻿using System;
-using System.Collections.Concurrent;
-using System.Collections.Generic;
+using System;
+using System.Buffers;
 using System.IO;
-using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 
 namespace Marten.Services
 {
-    public sealed class CharArrayTextWriter : TextWriter
+    public sealed class CharArrayTextWriter: TextWriter
     {
-        public const int InitialSize = 4096;
-        static readonly Encoding EncodingValue = new UnicodeEncoding(false, false);
-        char[] _chars = new char[InitialSize];
-        int _next;
-        int _length = InitialSize;
+        private readonly MemoryPool<char> _pool;
+        private IDisposable _owned;
+        private Memory<char> _memory;
+
+        private int _next;
 
         public override Encoding Encoding => EncodingValue;
-        public static readonly IPool DefaultPool = new Pool();
+        private static readonly Encoding EncodingValue = new UnicodeEncoding(false, false);
+
+        public CharArrayTextWriter() : this(new AllocatingMemoryPool<char>())
+        {
+        }
+
+        public CharArrayTextWriter(MemoryPool<char> pool)
+        {
+            _pool = pool;
+        }
 
         public override void Write(char value)
         {
             Ensure(1);
-            _chars[_next] = value;
+            _memory.Span[_next] = value;
             _next += 1;
         }
 
-        void Ensure(int i)
+        private void Ensure(int i)
         {
+            var length = _memory.Length;
+            if (length == 0)
+            {
+                var chunk = _pool.Rent(i);
+                _owned = chunk;
+                _memory = chunk.Memory;
+
+                return;
+            }
+
             var required = _next + i;
-            if (required < _length)
+
+            if (required < length)
             {
                 return;
             }
 
-            while (required >= _length)
+            while (required >= length)
             {
-                _length *= 2;
+                length *= 2;
             }
-            Array.Resize(ref _chars, _length);
+
+            var newChunk = _pool.Rent(length);
+            _memory.CopyTo(newChunk.Memory);
+
+            _owned.Dispose();
+            _owned = newChunk;
+            _memory = newChunk.Memory;
         }
 
         public override void Write(char[] buffer, int index, int count)
         {
-            Ensure(count);
-            Array.Copy(buffer, index, _chars, _next, count);
-            _next += count;
+            var span = new ReadOnlySpan<char>(buffer, index, count);
+            Write(span);
         }
 
         public override void Write(string value)
         {
-            var length = value.Length;
+            var span = value.AsSpan();
+            Write(span);
+        }
+
+        private void Write(ReadOnlySpan<char> span)
+        {
+            var length = span.Length;
+
             Ensure(length);
-            value.CopyTo(0, _chars, _next, length);
+            span.CopyTo(_memory.Span.Slice(_next));
             _next += length;
         }
 
@@ -97,88 +128,26 @@ namespace Marten.Services
             return Task.CompletedTask;
         }
 
-        public char[] Buffer => _chars;
-        public int Size => _next;
-
-        public interface IPool : IDisposable
-        {
-            CharArrayTextWriter Lease();
-            void Release(CharArrayTextWriter writer);
-            void Release(IEnumerable<CharArrayTextWriter> writer);
-        }
-
-        public class Pool : IPool
-        {
-            readonly IPool _parent;
-            readonly ConcurrentStack<CharArrayTextWriter> _cache = new ConcurrentStack<CharArrayTextWriter>();
-
-            public Pool(IPool parent)
-            {
-                _parent = parent;
-            }
-
-            public Pool() : this(null)
-            {}
-            
-            public CharArrayTextWriter Lease()
-            {
-                CharArrayTextWriter writer;
-                if (_cache.TryPop(out writer))
-                {
-                    return writer;
-                }
-
-                writer = _parent?.Lease();
-                if (writer != null)
-                {
-                    return writer;
-                }
-                
-                return new CharArrayTextWriter();
-            }
-
-            public void Release(CharArrayTextWriter writer)
-            {
-                // currently, all writers are cached. This might be changed to hold only N writers in the cache.
-                writer.Clear();
-                _cache.Push(writer);
-            }
-
-            public void Release(IEnumerable<CharArrayTextWriter> writer)
-            {
-                // currently, all writers are cached. This might be changed to hold only N writers in the cache.
-                var writers = writer.ToArray();
-                if (writers.Length == 0)
-                {
-                    return;
-                }
-
-                // ReSharper disable once ForCanBeConvertedToForeach
-                for (var i = 0; i < writers.Length; i++)
-                {
-                    writers[i]._next = 0;
-                }
-                _cache.PushRange(writers);
-            }
-
-            public void Dispose()
-            {
-                if (_parent != null)
-                {
-                    _parent.Release(_cache);
-                    _cache.Clear();
-                }
-            }
-        }
-
         public ArraySegment<char> ToCharSegment()
         {
-            return new ArraySegment<char>(Buffer, 0, Size);
+            // If npgsql was accepting Memory<char> this method could be skipped altogether
+            if (MemoryMarshal.TryGetArray<char>(_memory, out var segment))
+            {
+                return new ArraySegment<char>(segment.Array, segment.Offset, _next);
+            }
+
+            // really slow path that might happen with a custom MemoryPool<T>
+            return new ArraySegment<char>(_memory.Slice(0, _next).ToArray());
         }
 
         public void Clear()
         {
             _next = 0;
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            _owned.Dispose();
         }
     }
 }

@@ -1,14 +1,14 @@
-﻿using System;
+using System;
 using System.Linq;
-using Marten.Services;
-using Xunit;
 using System.Threading.Tasks;
-using Marten.Util;
+using Marten.Services;
+using Shouldly;
+using Xunit;
 
 namespace Marten.Testing.Linq
 {
     [SingleStoryteller]
-    public class invoking_queryable_through_first_async_Tests : DocumentSessionFixture<NulloIdentityMap>
+    public class invoking_queryable_through_first_async_Tests: DocumentSessionFixture<NulloIdentityMap>
     {
         [Fact]
         public async Task first_hit_with_only_one_document()

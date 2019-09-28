@@ -6,7 +6,6 @@ using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using Baseline;
-using FastExpressionCompiler;
 using Marten.Linq;
 using Marten.Schema.Identity;
 using Marten.Services;
@@ -18,24 +17,20 @@ using NpgsqlTypes;
 
 namespace Marten.Schema
 {
-    public class DocumentStorage<T> : IDocumentStorage<T> where T : class
+    public class DocumentStorage<T>: IDocumentStorage<T> where T : class
     {
         private readonly Func<T, object> _identity;
         private readonly string _loadArraySql;
         private readonly string _loaderSql;
-        private readonly ISerializer _serializer;
         private readonly DocumentMapping _mapping;
         private readonly DbObjectName _upsertName;
         private readonly Action<SprocCall, T, UpdateBatch, DocumentMapping, Guid?, Guid, string> _sprocWriter;
         private readonly Action<T, Guid> _setVersion = (x, v) => { };
 
-
-        public DocumentStorage(ISerializer serializer, DocumentMapping mapping)
+        public DocumentStorage(DocumentMapping mapping)
         {
-            _serializer = serializer;
             _mapping = mapping;
             IdType = TypeMappings.ToDbType(mapping.IdMember.GetMemberType());
-
 
             _loaderSql =
                 $"select {_mapping.SelectFields().Join(", ")} from {_mapping.Table.QualifiedName} as d where id = :id";
@@ -49,11 +44,9 @@ namespace Marten.Schema
                 _loadArraySql += $" and {TenantWhereFragment.Filter}";
             }
 
-
             _identity = LambdaBuilder.Getter<T, object>(mapping.IdMember);
 
             _sprocWriter = buildSprocWriter(mapping);
-            
 
             _upsertName = mapping.UpsertFunction;
 
@@ -99,7 +92,7 @@ namespace Marten.Schema
 
             var arguments = new UpsertFunction(mapping).OrderedArguments().Select(x =>
             {
-                return x.CompileUpdateExpression(_serializer.EnumStorage, call, doc, batch, mappingParam, currentVersion, newVersion, tenantId, true);
+                return x.CompileUpdateExpression(_mapping.DuplicatedFieldEnumStorage, call, doc, batch, mappingParam, currentVersion, newVersion, tenantId, true);
             });
 
             var block = Expression.Block(arguments);
@@ -117,37 +110,41 @@ namespace Marten.Schema
         public Type DocumentType => _mapping.DocumentType;
         public NpgsqlDbType IdType { get; }
 
-
         public virtual T Resolve(int startingIndex, DbDataReader reader, IIdentityMap map)
         {
-            if (reader.IsDBNull(startingIndex)) return null;
+            if (reader.IsDBNull(startingIndex))
+                return null;
 
-            var json = reader.GetTextReader(startingIndex);
             var id = reader[startingIndex + 1];
 
             var version = reader.GetFieldValue<Guid>(startingIndex + 2);
 
-            return map.Get<T>(id, json, version);
+            using (var json = reader.GetTextReader(startingIndex))
+            {
+                return map.Get<T>(id, json, version);
+            }
         }
 
         public virtual async Task<T> ResolveAsync(int startingIndex, DbDataReader reader, IIdentityMap map,
             CancellationToken token)
         {
-            if (await reader.IsDBNullAsync(startingIndex, token).ConfigureAwait(false)) return null;
-
-
-            var json = await reader.As<NpgsqlDataReader>().GetTextReaderAsync(startingIndex).ConfigureAwait(false);
+            if (await reader.IsDBNullAsync(startingIndex, token).ConfigureAwait(false))
+                return null;
 
             var id = await reader.GetFieldValueAsync<object>(startingIndex + 1, token).ConfigureAwait(false);
 
             var version = await reader.GetFieldValueAsync<Guid>(startingIndex + 2, token).ConfigureAwait(false);
 
-            return map.Get<T>(id, json, version);
+            using (var json = await reader.As<NpgsqlDataReader>().GetTextReaderAsync(startingIndex).ConfigureAwait(false))
+            {
+                return map.Get<T>(id, json, version);
+            }
         }
 
         public T Resolve(IIdentityMap map, IQuerySession session, object id)
         {
-            if (map.Has<T>(id)) return map.Retrieve<T>(id);
+            if (map.Has<T>(id))
+                return map.Retrieve<T>(id);
 
             var cmd = LoaderCommand(id);
             cmd.AddTenancy(session.Tenant);
@@ -160,7 +157,8 @@ namespace Marten.Schema
 
         public async Task<T> ResolveAsync(IIdentityMap map, IQuerySession session, CancellationToken token, object id)
         {
-            if (map.Has<T>(id)) return map.Retrieve<T>(id);
+            if (map.Has<T>(id))
+                return map.Retrieve<T>(id);
 
             var cmd = LoaderCommand(id);
             cmd.AddTenancy(session.Tenant);
@@ -172,16 +170,15 @@ namespace Marten.Schema
             }
         }
 
-
-
         public virtual T Fetch(object id, DbDataReader reader, IIdentityMap map)
         {
             var found = reader.Read();
-            if (!found) return null;
-
-            var json = reader.GetTextReader(0);
+            if (!found)
+                return null;
 
             var version = reader.GetFieldValue<Guid>(2);
+
+            var json = reader.GetTextReader(0);
 
             return map.Get<T>(id, json, version);
         }
@@ -189,15 +186,15 @@ namespace Marten.Schema
         public virtual async Task<T> FetchAsync(object id, DbDataReader reader, IIdentityMap map, CancellationToken token)
         {
             var found = await reader.ReadAsync(token).ConfigureAwait(false);
-            if (!found) return null;
-
-            var json = await reader.As<NpgsqlDataReader>().GetTextReaderAsync(0).ConfigureAwait(false);
+            if (!found)
+                return null;
 
             var version = await reader.GetFieldValueAsync<Guid>(2, token).ConfigureAwait(false);
 
+            var json = await reader.As<NpgsqlDataReader>().GetTextReaderAsync(0).ConfigureAwait(false);
+
             return map.Get<T>(id, json, version);
         }
-
 
         public NpgsqlCommand LoaderCommand(object id)
         {
@@ -213,7 +210,7 @@ namespace Marten.Schema
 
         public object Identity(object document)
         {
-            return _identity((T) document);
+            return _identity((T)document);
         }
 
         public void RegisterUpdate(string tenantIdOverride, UpdateStyle updateStyle, UpdateBatch batch, object entity)
@@ -236,8 +233,9 @@ namespace Marten.Schema
 
                 case UpdateStyle.Insert:
                     return _mapping.InsertFunction;
-                    case UpdateStyle.Update:
-                        return _mapping.UpdateFunction;
+
+                case UpdateStyle.Update:
+                    return _mapping.UpdateFunction;
 
                 default:
                     throw new ArgumentOutOfRangeException();
@@ -266,10 +264,8 @@ namespace Marten.Schema
                     currentVersion, setVersion);
             }
 
-            
-
             if (!_mapping.UseOptimisticConcurrency && updateStyle == UpdateStyle.Update)
-            {                
+            {
                 callback = new UpdateDocumentCallback<T>(Identity(entity));
             }
 
@@ -278,12 +274,10 @@ namespace Marten.Schema
                 exceptionTransform = new InsertExceptionTransform<T>(Identity(entity), _mapping.Table.Name);
             }
 
-
             var call = batch.Sproc(sprocName, callback, exceptionTransform);
 
-            _sprocWriter(call, (T) entity, batch, _mapping, currentVersion, newVersion, tenantId);
+            _sprocWriter(call, (T)entity, batch, _mapping, currentVersion, newVersion, tenantId);
         }
-
 
         public void Remove(IIdentityMap map, object entity)
         {
@@ -298,7 +292,7 @@ namespace Marten.Schema
 
         public void Store(IIdentityMap map, object id, object entity)
         {
-            map.Store<T>(id, (T) entity);
+            map.Store<T>(id, (T)entity);
         }
 
         public IStorageOperation DeletionForId(object id)

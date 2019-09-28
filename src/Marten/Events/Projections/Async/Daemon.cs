@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -9,7 +9,7 @@ using Marten.Util;
 
 namespace Marten.Events.Projections.Async
 {
-    public class Daemon : IDaemon
+    public class Daemon: IDaemon
     {
         private readonly DocumentStore _store;
         private readonly ITenant _tenant;
@@ -27,8 +27,9 @@ namespace Marten.Events.Projections.Async
             foreach (var projection in projections)
             {
                 if (projection == null)
-                    throw new ArgumentOutOfRangeException(nameof(projection),
-                        $"No projection is configured for view type {projection.ProjectedType().FullName}");
+                {
+                    throw new ArgumentOutOfRangeException(nameof(projection), $"No projection is configured");
+                }
 
                 var fetcher = new Fetcher(store, settings, projection, logger, _errorHandler);
                 var track = new ProjectionTrack(fetcher, store, projection, logger, _errorHandler, tenant);
@@ -76,6 +77,8 @@ namespace Marten.Events.Projections.Async
             {
                 throw new ArgumentOutOfRangeException(nameof(viewType));
             }
+
+            findCurrentEventLogPosition(viewType);
 
             _tracks[viewType].Start(lifecycle);
         }
@@ -126,12 +129,39 @@ namespace Marten.Events.Projections.Async
                             var name = reader.GetFieldValue<string>(0);
                             var lastEncountered = reader.GetFieldValue<long>(1);
 
-                            var track = _tracks.Values.FirstOrDefault(x => x.ViewType.FullName == name);
+                            var track = _tracks.Values.FirstOrDefault(x => x.ProgressionName == name);
 
                             if (track != null)
                             {
                                 track.LastEncountered = lastEncountered;
                             }
+                        }
+                    }
+                });
+            }
+
+            foreach (var track in _tracks.Values)
+            {
+                Logger.DeterminedStartingPosition(track);
+            }
+        }
+
+        private void findCurrentEventLogPosition(Type viewType)
+        {
+            using (var conn = _tenant.OpenConnection())
+            {
+                conn.Execute(cmd =>
+                {
+                    var projectionTrack = _tracks[viewType];
+
+                    cmd.Sql($"select last_seq_id from {_store.Events.ProgressionTable} where name = :name").With("name", projectionTrack.ProgressionName);
+
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        if (reader.Read())
+                        {
+                            var lastEncountered = reader.GetFieldValue<long>(0);
+                            projectionTrack.LastEncountered = lastEncountered;
                         }
                     }
                 });
@@ -244,7 +274,8 @@ namespace Marten.Events.Projections.Async
                     using (var reader = await cmd.ExecuteReaderAsync(tkn).ConfigureAwait(false))
                     {
                         var any = await reader.ReadAsync(tkn).ConfigureAwait(false);
-                        if (!any) return 0;
+                        if (!any)
+                            return 0;
 
                         if (await reader.IsDBNullAsync(0, tkn).ConfigureAwait(false))
                         {

@@ -1,22 +1,15 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 
 namespace Marten.Services
 {
-    public class DirtyTrackingIdentityMap : IdentityMap<TrackedEntity>, IDocumentTracker
+    public class DirtyTrackingIdentityMap: IdentityMap<TrackedEntity>, IDocumentTracker
     {
-        readonly CharArrayTextWriter.IPool _pool;
-
-        public DirtyTrackingIdentityMap(ISerializer serializer, IEnumerable<IDocumentSessionListener> listeners, CharArrayTextWriter.IPool pool) : base(serializer, listeners)
+        public DirtyTrackingIdentityMap(ISerializer serializer, IEnumerable<IDocumentSessionListener> listeners) : base(serializer, listeners)
         {
-            _pool = pool;
         }
-
-        // TEST PURPOSES ONLY
-        public DirtyTrackingIdentityMap(ISerializer serializer, IEnumerable<IDocumentSessionListener> listeners) : this(serializer, listeners, new CharArrayTextWriter.Pool())
-        {}
 
         protected override TrackedEntity ToCache(object id, Type concreteType, object document, TextReader json, UnitOfWorkOrigin origin = UnitOfWorkOrigin.Loaded)
         {
@@ -33,12 +26,12 @@ namespace Marten.Services
                 return default(T);
             }
 
-            return (T) cacheValue.Document;
+            return (T)cacheValue.Document;
         }
 
         public IEnumerable<DocumentChange> DetectChanges()
         {
-            return Cache.SelectMany(x => x.Values.Where(_ => _.Origin == UnitOfWorkOrigin.Loaded).Select(_ => _.DetectChange())).Where(x => x != null).ToArray();
+            return Cache.Value.Enumerate().SelectMany(x => x.Value.Enumerate().Where(_ => _.Value.Origin == UnitOfWorkOrigin.Loaded).Select(_ => _.Value.DetectChange())).Where(x => x != null).ToArray();
         }
 
         public override void ClearChanges()

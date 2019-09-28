@@ -1,11 +1,11 @@
-﻿using System;
+using System;
 using Baseline;
 using Oakton;
 
 namespace Marten.CommandLine.Commands.Dump
 {
     [Description("Dumps the entire DDL for the configured Marten database")]
-    public class DumpCommand : MartenCommand<DumpInput>
+    public class DumpCommand: MartenCommand<DumpInput>
     {
         public DumpCommand()
         {
@@ -18,12 +18,11 @@ namespace Marten.CommandLine.Commands.Dump
             if (input.ByTypeFlag)
             {
                 input.WriteLine("Writing DDL files to " + input.FileName);
-                store.Schema.WriteDDLByType(input.FileName);
+                store.Schema.WriteDDLByType(input.FileName, input.TransactionalScriptFlag);
             }
             else
             {
                 input.WriteLine("Writing DDL file to " + input.FileName);
-
 
                 try
                 {
@@ -31,15 +30,13 @@ namespace Marten.CommandLine.Commands.Dump
                 }
                 catch (Exception)
                 {
-                    
                     input.WriteLine(ConsoleColor.Yellow, $"Unable to clean the directory at {input.FileName} before writing new files");
                 }
 
-                store.Schema.WriteDDL(input.FileName);
+                store.Schema.WriteDDL(input.FileName, input.TransactionalScriptFlag);
             }
 
             return true;
         }
-
     }
 }

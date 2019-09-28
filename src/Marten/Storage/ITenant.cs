@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Data;
 using System.Threading;
 using System.Threading.Tasks;
@@ -45,12 +45,14 @@ namespace Marten.Storage
         void EnsureStorageExists(Type documentType);
 
         /// <summary>
-        /// Used to create new Hilo sequences 
+        /// Used to create new Hilo sequences
         /// </summary>
         ISequences Sequences { get; }
 
         IDocumentStorage<T> StorageFor<T>();
+
         IdAssignment<T> IdAssignmentFor<T>();
+
         TransformFunction TransformFor(string name);
 
         /// <summary>
@@ -66,7 +68,6 @@ namespace Marten.Storage
         /// <returns></returns>
         IBulkLoader<T> BulkLoaderFor<T>();
 
-
         /// <summary>
         ///     Directly open a managed connection to the underlying Postgresql database
         /// </summary>
@@ -74,7 +75,7 @@ namespace Marten.Storage
         /// <param name="isolationLevel"></param>
         /// <param name="timeout"></param>
         /// <returns></returns>
-        IManagedConnection OpenConnection(CommandRunnerMode mode = CommandRunnerMode.AutoCommit, IsolationLevel isolationLevel = IsolationLevel.ReadCommitted, int timeout = 30);
+        IManagedConnection OpenConnection(CommandRunnerMode mode = CommandRunnerMode.AutoCommit, IsolationLevel isolationLevel = IsolationLevel.ReadCommitted, int? timeout = null);
 
         /// <summary>
         ///     Set the minimum sequence number for a Hilo sequence for a specific document type
@@ -105,6 +106,5 @@ namespace Marten.Storage
         /// </summary>
         /// <returns></returns>
         NpgsqlConnection CreateConnection();
-
     }
 }
